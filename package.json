@@ -1,0 +1,47 @@
+{
+    "name": "@jahia/pagebuilder-background-jobs",
+    "version": "1.0.0",
+    "scripts": {
+        "build": "webpack --mode=production --stats minimal",
+        "build:production": "webpack --mode=production --stats verbose",
+        "dev": "webpack --watch",
+        "webpack": "webpack"
+    },
+    "main": "index.js",
+    "license": "MIT",
+    "dx-extends": {
+        "@jahia/jahia-ui-root": "0.0.1"
+    },
+    "jahia": {
+        "remotes": {
+            "jahia": "javascript/apps/remoteEntry.js"
+        }
+    },
+    "dependencies": {
+        "@apollo/client": "^3.11.8",
+        "@jahia/moonstone": "^2.9.1",
+        "@jahia/ui-extender": "^1.0.6",
+        "@material-ui/core": "^3.9.3",
+        "graphql": "^16.9.0",
+        "graphql-tag": "^2.12.6",
+        "prop-types": "^15.8.1",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "react-redux": "^9.2.0"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.6.2",
+        "@babel/preset-env": "^7.6.2",
+        "@babel/preset-react": "^7.0.0",
+        "@jahia/webpack-config": "^1.0.0",
+        "babel-loader": "^8.0.6",
+        "buffer": "^6.0.3",
+        "clean-webpack-plugin": "^3.0.0",
+        "copy-webpack-plugin": "^9.0.1",
+        "process": "^0.11.10",
+        "stream-browserify": "^3.0.0",
+        "util": "^0.12.5",
+        "webpack": "^5.88.2",
+        "webpack-cli": "^5.0.1"
+    }
+}
