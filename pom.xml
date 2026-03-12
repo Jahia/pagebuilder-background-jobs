@@ -10,7 +10,7 @@
 
     <groupId>org.jahia.community</groupId>
     <artifactId>pagebuilder-background-jobs</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>bundle</packaging>
     <name>Page Builder Background Jobs</name>
     <description>Module providing a native Background Jobs dialog in JContent Page Builder.</description>
@@ -20,8 +20,6 @@
         <jahia-module-type>system</jahia-module-type>
         <jahia-deploy-on-site>system</jahia-deploy-on-site>
         <yarn.arguments>build:production</yarn.arguments>
-        <jahia-key>org.jahia.privateAppStore</jahia-key>
-        <require-capability>org.jahia.license;filter:="(key=org.jahia.privateAppStore)"</require-capability>
     </properties>
 
     <repositories>
@@ -137,7 +135,10 @@
         </dependency>
     </dependencies>
 
-  <scm>
-    <tag>1_0_0</tag>
-  </scm>
+    <scm>
+        <connection>scm:git:git@github.com:Jahia/pagebuilder-background-jobs.git</connection>
+        <developerConnection>scm:git:git@github.com:Jahia/pagebuilder-background-jobs.git</developerConnection>
+        <url>scm:git:git@github.com:Jahia/pagebuilder-background-jobs.git</url>
+        <tag>HEAD</tag>
+    </scm>
 </project>
