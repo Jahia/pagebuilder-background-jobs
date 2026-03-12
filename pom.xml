@@ -6,7 +6,6 @@
         <groupId>org.jahia.modules</groupId>
         <artifactId>jahia-modules</artifactId>
         <version>8.2.0.0</version>
-        <relativePath />
     </parent>
 
     <groupId>org.jahia.community</groupId>
