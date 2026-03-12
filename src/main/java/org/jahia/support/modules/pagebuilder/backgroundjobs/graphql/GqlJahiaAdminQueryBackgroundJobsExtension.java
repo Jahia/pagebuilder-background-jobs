@@ -34,7 +34,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     private static final String CAN_ACCESS_JOBS_INFORMATION = "canAccessJobsInformation";
     private static final String ADMIN_PERMISSION = "admin";
     private static final String PERMISSION_DENIED_MESSAGE = "Permission denied";
-
+    private static final String DEFAULT_WORKSPACE = "default";
     @GraphQLField
     @GraphQLName("pageBuilderBackgroundJobs")
     @GraphQLDescription("Background jobs list for Page Builder dialog")
@@ -67,120 +67,109 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     }
 
     private static boolean hasJobsPermission(String siteKey, String path, DataFetchingEnvironment environment) {
-        return hasJobsPermission(siteKey, path, environment, null);
-    }
-
-    private static boolean hasJobsPermission(String siteKey, String path, DataFetchingEnvironment environment, StringBuilder debug) {
-        JahiaUser initialUser = null;
-        JahiaUser effectiveUser = null;
-        boolean userInjected = false;
-        try {
-            initialUser = JCRSessionFactory.getInstance().getCurrentUser();
-            if (debug != null) {
-                debug.append("initialUser=").append(initialUser != null ? initialUser.getName() : "null").append("; ");
-            }
-
-            effectiveUser = initialUser != null ? initialUser : resolveUserFromRequest(environment);
-            if (effectiveUser != null && initialUser == null) {
-                JCRSessionFactory.getInstance().setCurrentUser(effectiveUser);
-                userInjected = true;
-            }
-            if (debug != null) {
-                debug.append("effectiveUser=").append(effectiveUser != null ? effectiveUser.getName() : "null")
-                        .append("; injected=").append(userInjected).append("; ");
-            }
-
-            if (effectiveUser != null && "guest".equals(effectiveUser.getName())) {
-                if (debug != null) {
-                    debug.append("guest=true; ");
-                }
+        try (PermissionContext context = openPermissionContext(environment)) {
+            if (isGuestUser(context.effectiveUser)) {
                 return false;
             }
-            if (effectiveUser != null && effectiveUser.isRoot()) {
-                if (debug != null) {
-                    debug.append("isRoot=true; ");
-                }
+            if (isRootUser(context.effectiveUser)) {
+                return true;
+            }
+            if (hasPermissionOnRequestedPath(context.session, path, environment)) {
+                return true;
+            }
+            if (hasPermissionOnSite(context.session, siteKey, environment)) {
                 return true;
             }
 
-            JCRSessionFactory sessionFactory = JCRSessionFactory.getInstance();
-            JCRSessionWrapper session = sessionFactory.getCurrentUserSession("default");
-            if (session == null) {
-                session = sessionFactory.getCurrentUserSession("default", Locale.ENGLISH);
-            }
-            if (session == null) {
-                session = sessionFactory.getCurrentUserSession("default", Locale.ENGLISH, Locale.ENGLISH);
-            }
-            if (session == null) {
-                session = sessionFactory.getCurrentUserSession();
-            }
-            if (debug != null) {
-                debug.append("sessionAvailable=").append(session != null).append("; ");
-            }
-
-            if (path != null && !path.trim().isEmpty()) {
-                String normalizedPath = path.trim();
-                boolean hasAdminOnPath = hasPermissionOnPath(session, normalizedPath, ADMIN_PERMISSION, environment);
-                boolean hasCustomOnPath = hasPermissionOnPath(session, normalizedPath, CAN_ACCESS_JOBS_INFORMATION, environment);
-                if (debug != null) {
-                    debug.append("path=").append(normalizedPath)
-                            .append(",adminOnPath=").append(hasAdminOnPath)
-                            .append(",customOnPath=").append(hasCustomOnPath).append("; ");
-                }
-                if (hasAdminOnPath || hasCustomOnPath) {
-                    return true;
-                }
-            }
-
-            if (siteKey != null && !siteKey.trim().isEmpty()) {
-                String normalizedSiteKey = siteKey.trim();
-                String sitePath = normalizedSiteKey.startsWith("/sites/") ? normalizedSiteKey : "/sites/" + normalizedSiteKey;
-                boolean hasAdminOnSite = hasPermissionOnPath(session, sitePath, ADMIN_PERMISSION, environment);
-                boolean hasCustomOnSite = hasPermissionOnPath(session, sitePath, CAN_ACCESS_JOBS_INFORMATION, environment);
-                if (debug != null) {
-                    debug.append("sitePath=").append(sitePath)
-                            .append(",adminOnSite=").append(hasAdminOnSite)
-                            .append(",customOnSite=").append(hasCustomOnSite).append("; ");
-                }
-                if (hasAdminOnSite || hasCustomOnSite) {
-                    return true;
-                }
-            }
-
-            boolean hasAdminOnRoot = hasPermissionOnPath(session, "/", ADMIN_PERMISSION, environment);
-            boolean hasCustomOnRoot = hasPermissionOnPath(session, "/", CAN_ACCESS_JOBS_INFORMATION, environment);
-            if (debug != null) {
-                debug.append("adminOnRoot=").append(hasAdminOnRoot)
-                        .append(",customOnRoot=").append(hasCustomOnRoot).append("; ");
-            }
-            if (hasAdminOnRoot || hasCustomOnRoot) {
-                return true;
-            }
-
-            boolean hasGlobalAdmin = hasPermissionFromSecurityFilter(ADMIN_PERMISSION, environment);
-            boolean hasGlobalCustom = hasPermissionFromSecurityFilter(CAN_ACCESS_JOBS_INFORMATION, environment);
-            if (debug != null) {
-                debug.append("globalAdmin=").append(hasGlobalAdmin)
-                        .append(",globalCustom=").append(hasGlobalCustom).append("; ");
-            }
-            if (hasGlobalAdmin || hasGlobalCustom) {
-                return true;
-            }
-
-            boolean hasAdminOnAnySite = hasPermissionOnAnySite(session, ADMIN_PERMISSION, environment);
-            boolean hasCustomOnAnySite = hasPermissionOnAnySite(session, CAN_ACCESS_JOBS_INFORMATION, environment);
-            if (debug != null) {
-                debug.append("adminOnAnySite=").append(hasAdminOnAnySite)
-                        .append(",customOnAnySite=").append(hasCustomOnAnySite).append("; ");
-            }
-            return hasAdminOnAnySite || hasCustomOnAnySite;
+            return hasFallbackPermission(context.session, environment);
         } catch (RepositoryException e) {
             throw new RuntimeException("Unable to verify background jobs permission", e);
-        } finally {
-            if (userInjected) {
-                JCRSessionFactory.getInstance().setCurrentUser(initialUser);
-            }
         }
+    }
+
+    private static PermissionContext openPermissionContext(DataFetchingEnvironment environment) throws RepositoryException {
+        JCRSessionFactory sessionFactory = JCRSessionFactory.getInstance();
+        JahiaUser initialUser = sessionFactory.getCurrentUser();
+        JahiaUser effectiveUser = initialUser != null ? initialUser : resolveUserFromRequest(environment);
+        boolean userInjected = initialUser == null && effectiveUser != null;
+
+        if (userInjected) {
+            sessionFactory.setCurrentUser(effectiveUser);
+        }
+
+        return new PermissionContext(initialUser, effectiveUser, getCurrentUserSession(sessionFactory), userInjected);
+    }
+
+    private static JCRSessionWrapper getCurrentUserSession(JCRSessionFactory sessionFactory) throws RepositoryException {
+        JCRSessionWrapper session = sessionFactory.getCurrentUserSession(DEFAULT_WORKSPACE);
+        if (session != null) {
+            return session;
+        }
+
+        session = sessionFactory.getCurrentUserSession(DEFAULT_WORKSPACE, Locale.ENGLISH);
+        if (session != null) {
+            return session;
+        }
+
+        session = sessionFactory.getCurrentUserSession(DEFAULT_WORKSPACE, Locale.ENGLISH, Locale.ENGLISH);
+        if (session != null) {
+            return session;
+        }
+
+        return sessionFactory.getCurrentUserSession();
+    }
+
+    private static boolean isGuestUser(JahiaUser user) {
+        return user != null && "guest".equals(user.getName());
+    }
+
+    private static boolean isRootUser(JahiaUser user) {
+        return user != null && user.isRoot();
+    }
+
+    private static boolean hasPermissionOnRequestedPath(JCRSessionWrapper session, String path, DataFetchingEnvironment environment) {
+        String normalizedPath = normalize(path);
+        return normalizedPath != null && hasAnyPermissionOnPath(session, normalizedPath, environment);
+    }
+
+    private static boolean hasPermissionOnSite(JCRSessionWrapper session, String siteKey, DataFetchingEnvironment environment) {
+        String normalizedSiteKey = normalize(siteKey);
+        if (normalizedSiteKey == null) {
+            return false;
+        }
+
+        String sitePath = normalizedSiteKey.startsWith("/sites/") ? normalizedSiteKey : "/sites/" + normalizedSiteKey;
+        return hasAnyPermissionOnPath(session, sitePath, environment);
+    }
+
+    private static boolean hasFallbackPermission(JCRSessionWrapper session, DataFetchingEnvironment environment) {
+        return hasAnyPermissionOnPath(session, "/", environment)
+                || hasAnyGlobalPermission(environment)
+                || hasAnyPermissionOnAnySite(session, environment);
+    }
+
+    private static boolean hasAnyPermissionOnPath(JCRSessionWrapper session, String path, DataFetchingEnvironment environment) {
+        return hasPermissionOnPath(session, path, ADMIN_PERMISSION, environment)
+                || hasPermissionOnPath(session, path, CAN_ACCESS_JOBS_INFORMATION, environment);
+    }
+
+    private static boolean hasAnyGlobalPermission(DataFetchingEnvironment environment) {
+        return hasPermissionFromSecurityFilter(ADMIN_PERMISSION, environment)
+                || hasPermissionFromSecurityFilter(CAN_ACCESS_JOBS_INFORMATION, environment);
+    }
+
+    private static boolean hasAnyPermissionOnAnySite(JCRSessionWrapper session, DataFetchingEnvironment environment) {
+        return hasPermissionOnAnySite(session, ADMIN_PERMISSION, environment)
+                || hasPermissionOnAnySite(session, CAN_ACCESS_JOBS_INFORMATION, environment);
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmedValue = value.trim();
+        return trimmedValue.isEmpty() ? null : trimmedValue;
     }
 
     private static List<JobDetail> getVisibleJobs() throws SchedulerException {
@@ -267,14 +256,14 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
                 return false;
             }
 
-            JCRSessionWrapper currentSession = JCRSessionFactory.getInstance().getCurrentUserSession("default");
+            JCRSessionWrapper currentSession = JCRSessionFactory.getInstance().getCurrentUserSession(DEFAULT_WORKSPACE);
             if (currentSession != null && currentSession.nodeExists(path) &&
                     permissionService.hasPermission(permission, currentSession.getNode(path))) {
                 return true;
             }
 
             JCRSessionWrapper systemSession = JCRSessionFactory.getInstance()
-                    .getCurrentSystemSession("default", Locale.ENGLISH, Locale.ENGLISH);
+                    .getCurrentSystemSession(DEFAULT_WORKSPACE, Locale.ENGLISH, Locale.ENGLISH);
             if (systemSession != null && systemSession.nodeExists(path) &&
                     permissionService.hasPermission(permission, systemSession.getNode(path))) {
                 return true;
@@ -314,6 +303,27 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
             return userNode != null ? userNode.getJahiaUser() : null;
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static final class PermissionContext implements AutoCloseable {
+        private final JahiaUser initialUser;
+        private final JahiaUser effectiveUser;
+        private final JCRSessionWrapper session;
+        private final boolean userInjected;
+
+        private PermissionContext(JahiaUser initialUser, JahiaUser effectiveUser, JCRSessionWrapper session, boolean userInjected) {
+            this.initialUser = initialUser;
+            this.effectiveUser = effectiveUser;
+            this.session = session;
+            this.userInjected = userInjected;
+        }
+
+        @Override
+        public void close() {
+            if (userInjected) {
+                JCRSessionFactory.getInstance().setCurrentUser(initialUser);
+            }
         }
     }
 }
