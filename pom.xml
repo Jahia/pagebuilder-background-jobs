@@ -9,7 +9,7 @@
         <relativePath />
     </parent>
 
-    <groupId>org.jahia.support.modules</groupId>
+    <groupId>org.jahia.community</groupId>
     <artifactId>pagebuilder-background-jobs</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>bundle</packaging>
