@@ -5,12 +5,12 @@
     <parent>
         <groupId>org.jahia.modules</groupId>
         <artifactId>jahia-modules</artifactId>
-        <version>8.2.0.0</version>
+        <version>8.2.2.0</version>
     </parent>
 
     <groupId>org.jahia.community</groupId>
     <artifactId>pagebuilder-background-jobs</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>bundle</packaging>
     <name>Page Builder Background Jobs</name>
     <description>Module providing a native Background Jobs dialog in JContent Page Builder.</description>
