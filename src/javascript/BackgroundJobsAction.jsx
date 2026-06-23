@@ -21,7 +21,7 @@ export const BackgroundJobsActionComponent = ({render: Render, ...others}) => {
         siteKey: state?.site || state?.jcontent?.site,
         currentPath: state?.jcontent?.path
     }), shallowEqual);
-    const urlSiteKey = typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : undefined;
+    const urlSiteKey = typeof window === 'undefined' ? undefined : window.location.pathname.split('/')[2];
     const effectiveSiteKey = siteKey || urlSiteKey;
     const isPageBuilderMode = viewMode === PAGE_BUILDER_VIEW_MODE;
     const {data, error} = useQuery(JobsAccessQuery, {
@@ -53,7 +53,7 @@ export const BackgroundJobsActionComponent = ({render: Render, ...others}) => {
                     isOpen: true,
                     siteKey: effectiveSiteKey,
                     path: currentPath,
-                    initialShowAllJobs: showAllJobs,
+                    isInitialShowAll: showAllJobs,
                     onClose: () => {
                         componentRenderer.setProperties('pageBuilderBackgroundJobsDialog', {isOpen: false});
                     },
