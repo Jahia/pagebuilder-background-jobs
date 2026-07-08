@@ -35,8 +35,8 @@ public class GqlJahiaAdminQueryBackgroundJobsCompatibilityExtension {
     @GraphQLField
     @GraphQLName("pageBuilderBackgroundJobsShowAll")
     @GraphQLDescription("Current dialog mode for legacy admin.jahia path")
-    public boolean pageBuilderBackgroundJobsShowAll() {
-        return GqlJahiaAdminQueryBackgroundJobsExtension.pageBuilderBackgroundJobsShowAll();
+    public boolean pageBuilderBackgroundJobsShowAll(DataFetchingEnvironment environment) {
+        return GqlJahiaAdminQueryBackgroundJobsExtension.pageBuilderBackgroundJobsShowAll(environment);
     }
 
 }

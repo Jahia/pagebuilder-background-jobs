@@ -46,7 +46,22 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         }
 
         List<JobDetail> jobs = getVisibleJobs();
-        return jobs.stream().map(GqlPageBuilderBackgroundJob::from).collect(Collectors.toList());
+        java.util.stream.Stream<GqlPageBuilderBackgroundJob> stream =
+                jobs.stream().map(GqlPageBuilderBackgroundJob::from);
+        // SEC-140: the permission is validated against the requested site, but getVisibleJobs() returns
+        // jobs for the whole instance. Scope the result to the requested site so a caller authorized on a
+        // single site cannot read other sites' publication-job metadata (incl. other users' userKey). The
+        // global "show all" toggle (an explicit operator opt-in) keeps the full, unfiltered list.
+        if (!isShowAllJobsEnabled() && siteKey != null && !siteKey.isEmpty()) {
+            stream = stream.filter(job -> siteKey.equals(job.getSiteKey()));
+        }
+        return stream.collect(Collectors.toList());
+    }
+
+    /** The {@code showAllJobs} config flag, read WITHOUT a permission gate (used for internal scoping). */
+    private static boolean isShowAllJobsEnabled() {
+        PageBuilderBackgroundJobsService service = BundleUtils.getOsgiService(PageBuilderBackgroundJobsService.class, null);
+        return service != null && service.isShowAllJobs();
     }
 
     @GraphQLField
@@ -61,9 +76,14 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     @GraphQLField
     @GraphQLName("pageBuilderBackgroundJobsShowAll")
     @GraphQLDescription("True when the dialog should expose all jobs and UI filters")
-    public static boolean pageBuilderBackgroundJobsShowAll() {
-        PageBuilderBackgroundJobsService service = BundleUtils.getOsgiService(PageBuilderBackgroundJobsService.class, null);
-        return service != null && service.isShowAllJobs();
+    public static boolean pageBuilderBackgroundJobsShowAll(DataFetchingEnvironment environment) {
+        // SEC-140 (C3): gate this config probe behind the same jobs permission (was ungated, so any
+        // authenticated user could read the flag). null site/path -> guest rejected, root allowed,
+        // else the any-site fallback check applies.
+        if (!hasJobsPermission(null, null, environment)) {
+            return false;
+        }
+        return isShowAllJobsEnabled();
     }
 
     private static boolean hasJobsPermission(String siteKey, String path, DataFetchingEnvironment environment) {
