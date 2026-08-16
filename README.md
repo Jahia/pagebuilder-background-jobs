@@ -34,7 +34,8 @@ Jahia module that adds a **Background Jobs** dialog to the JContent Page Builder
   - `webpack.config.js`
   - `pom.xml`
 - Tests:
-  - `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/GqlJahiaAdminQueryBackgroundJobsExtensionTest.java` (JUnit)
+  - `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/` — `GqlJahiaAdminQueryBackgroundJobsExtensionTest.java`, `GqlPageBuilderBackgroundJobTest.java` (JUnit)
+  - `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/service/` — `PageBuilderBackgroundJobsServiceTest.java` (JUnit)
   - `tests/cypress/e2e/` (Cypress E2E)
 
 ## GraphQL API
@@ -242,7 +243,7 @@ Deployable artifact:
 
 The module includes both **JUnit** unit tests and **Cypress** E2E tests:
 
-- **JUnit**: `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/GqlJahiaAdminQueryBackgroundJobsExtensionTest.java`  
+- **JUnit** (3 classes): `GqlJahiaAdminQueryBackgroundJobsExtensionTest`, `GqlPageBuilderBackgroundJobTest`, `PageBuilderBackgroundJobsServiceTest` under `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/`  
   Run with: `mvn test`
 
 - **Cypress E2E**: `tests/cypress/e2e/`  
