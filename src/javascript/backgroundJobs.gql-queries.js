@@ -7,7 +7,6 @@ export const BackgroundJobsQuery = gql`
             group
             jobDescription
             duration
-            jobState
             jobStatus
             siteKey
             userKey

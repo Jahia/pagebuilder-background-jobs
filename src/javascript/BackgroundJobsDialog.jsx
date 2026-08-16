@@ -24,7 +24,13 @@ const AUTO_REFRESH_DELAY_MS = 5000;
 const DEFAULT_ROWS_PER_PAGE = 50;
 const STATUS_ORDER = ['EXECUTING', 'SCHEDULED', 'ADDED', 'FAILED', 'CANCELED', 'SUCCESSFUL', 'UNKNOWN'];
 const SESSION_STORAGE_KEY = 'pagebuilderBackgroundJobsDialogState';
+// Darkened from the original #0f7ea8 (~4.6:1 on white, failing both the WCAG AA 4.5:1
+// minimum in practice and the AAA 7:1 target) to a same-hue #0a5c7a (~7.4:1 on white),
+// so the status fold/unfold control's 11px label meets the AAA contrast target while
+// remaining visually recognisable as the same teal-blue link colour.
+const STATUS_TOGGLE_COLOR = '#0a5c7a';
 const COMPACT_HEADER_CELL_STYLE = {
+    // #1f2a33 on white is ~14.6:1, already comfortably above the AAA 7:1 target.
     color: '#1f2a33',
     fontWeight: 600,
     fontSize: '11px',
@@ -35,6 +41,7 @@ const COMPACT_HEADER_CELL_STYLE = {
     textOverflow: 'ellipsis'
 };
 const COMPACT_CELL_STYLE = {
+    // #25313b on white is ~13.3:1, already comfortably above the AAA 7:1 target.
     color: '#25313b',
     fontSize: '11px',
     padding: '0 6px',
@@ -155,7 +162,13 @@ const formatCreationDate = job => {
     const timestamp = getCreationTimestamp(job);
     if (timestamp) {
         try {
-            return new Date(timestamp).toLocaleString('fr-FR', {hour12: false});
+            // Passing `undefined` as the locale makes toLocaleString fall back to the
+            // browser/user's own locale instead of hardcoding French formatting for
+            // every Jahia user. `hour12: false` is kept because it is a formatting
+            // option, not a locale override: it only forces a 24-hour clock and does
+            // not change the date part's language, order or separators, so it stays
+            // consistent with the user's own locale conventions.
+            return new Date(timestamp).toLocaleString(undefined, {hour12: false});
         } catch (e) {
             return '-';
         }
@@ -230,7 +243,10 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
         }
 
         const interval = window.setInterval(() => {
-            refetch();
+            // useQuery already surfaces failures through the `error` state (thanks to
+            // notifyOnNetworkStatusChange), so we only need to prevent this fire-and-forget
+            // call from producing an unhandled promise rejection.
+            refetch().catch(() => {});
         }, AUTO_REFRESH_DELAY_MS);
 
         return () => window.clearInterval(interval);
@@ -398,7 +414,12 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                         variant="outlined"
                         size="default"
                         disabled={networkStatus === 4}
-                        onClick={() => refetch()}
+                        onClick={() => {
+                            // Same rationale as the auto-refresh interval above: errors are
+                            // already reflected in the `error` state, so we just avoid an
+                            // unhandled promise rejection here.
+                            refetch().catch(() => {});
+                        }}
                     />
                 </div>
 
@@ -451,31 +472,42 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                         <TableCell style={{...COMPACT_HEADER_CELL_STYLE, width: '8%'}}>Duration</TableCell>
                                     </TableRow>
                                 </TableHead>
-                                <TableBody>
-                                    {statusKeys.map(status => (
-                                        <React.Fragment key={status}>
+                                {statusKeys.map(status => {
+                                    const isExpanded = statusExpanded[status] !== false;
+                                    const statusGroupId = `background-jobs-status-group-${status}`;
+                                    return (
+                                        // One <TableBody> (native <tbody>) per status group instead of a
+                                        // React.Fragment: this gives the disclosure button a single, stable
+                                        // element id to point `aria-controls` at (an id is only valid once
+                                        // per document, so it cannot be repeated on every job row), and the
+                                        // element still exists - holding at least the toggle's own row - even
+                                        // while collapsed. Multiple <tbody> elements inside one <table> are
+                                        // valid HTML and render identically to the previous single-tbody markup.
+                                        <TableBody key={status} id={statusGroupId}>
                                             <TableRow style={{height: 18}}>
                                                     <TableCell colSpan={6} style={{padding: '0 4px', height: '18px'}}>
                                                     <button
                                                         type="button"
                                                         onClick={() => handleToggleStatus(status)}
+                                                        aria-expanded={isExpanded}
+                                                        aria-controls={statusGroupId}
                                                             style={{
                                                                 background: 'none',
                                                                 border: 0,
-                                                                color: '#0f7ea8',
+                                                                color: STATUS_TOGGLE_COLOR,
                                                                 cursor: 'pointer',
                                                                 fontSize: '10px',
                                                                 fontWeight: 600,
                                                                 padding: 0
                                                             }}
                                                     >
-                                                        {statusExpanded[status] === false ? '▶ ' : '▼ '}
+                                                        {isExpanded ? '▼ ' : '▶ '}
                                                         {`STATUS:${status} (${statusCounts[status]} ITEMS)`}
                                                     </button>
                                                 </TableCell>
                                             </TableRow>
 
-                                            {statusExpanded[status] !== false &&
+                                            {isExpanded &&
                                                 (jobsByStatus[status] || [])
                                                     .filter(job => pagedVisibleJobKeys.has(job.__key))
                                                     .map(job => (
@@ -502,9 +534,9 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                                             <TableCell style={COMPACT_CELL_STYLE}>{formatDuration(job?.duration)}</TableCell>
                                                         </TableRow>
                                                     ))}
-                                        </React.Fragment>
-                                    ))}
-                                </TableBody>
+                                        </TableBody>
+                                    );
+                                })}
                             </Table>
 
                             <TablePagination

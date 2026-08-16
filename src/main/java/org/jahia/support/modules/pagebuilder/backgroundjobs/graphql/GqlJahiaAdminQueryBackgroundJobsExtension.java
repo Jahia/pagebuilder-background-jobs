@@ -209,9 +209,12 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     static String resolveRequestedSiteKey(String siteKey, String path) {
         String normalizedSiteKey = normalize(siteKey);
         if (normalizedSiteKey != null) {
+            // Both forms go through firstSegment so "sitea/" and "/sites/sitea/" normalize alike.
+            // Leaving the plain branch unnormalized failed closed (it simply matched nothing), but the
+            // asymmetry is a trap for anyone extending this later.
             return normalizedSiteKey.startsWith("/sites/")
                     ? firstSegment(normalizedSiteKey.substring("/sites/".length()))
-                    : normalizedSiteKey;
+                    : firstSegment(normalizedSiteKey);
         }
 
         String normalizedPath = normalize(path);
