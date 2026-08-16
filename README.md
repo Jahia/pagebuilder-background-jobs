@@ -63,7 +63,10 @@ Property:
 Behavior:
 
 - `false` (default): only jobs whose group contains `PublicationJob` are returned. The button label and dialog title become `Publication jobs`, and the group filter UI is hidden.
-- `true`: all jobs are returned. The UI stays in `Background jobs` mode, with group filters enabled.
+- `true`: all job **groups** are returned. The UI stays in `Background jobs` mode, with group filters enabled.
+
+> `showAllJobs` selects which job *groups* are eligible. It never widens which *sites* a caller may see —
+> site scoping is always derived from the caller's own permissions (see below).
 
 Default config is shipped in:
 
@@ -83,10 +86,21 @@ Defined in:
 
 ### Access rules
 
-- `guest` is denied.
-- `root` is allowed.
-- users with `admin` are allowed.
-- users with `canAccessJobsInformation` are allowed.
+Authorization decides both **whether** the caller may query jobs and **which sites' jobs** they receive:
+
+| Caller | Result |
+|---|---|
+| `guest` | denied |
+| `root` | unrestricted — every site, plus instance-level jobs |
+| `admin` / `canAccessJobsInformation` on `/` | unrestricted |
+| `admin` / `canAccessJobsInformation` on one or more sites | scoped to exactly those sites |
+| no grant anywhere | denied |
+
+Scoping is derived from the caller's permissions, **never** from the `siteKey` argument — that argument is
+caller-supplied and may be omitted. When a specific site is requested, the caller must hold the permission
+on *that* site; there is no any-site or global-API-scope fallback (GHSA-4vfj-8pfg-4xrp / SEC-140).
+
+Jobs carrying no `siteKey` are instance-level and are visible only to unrestricted callers.
 
 The UI button is hidden when `canAccessPageBuilderBackgroundJobs(...)` returns `false`.
 

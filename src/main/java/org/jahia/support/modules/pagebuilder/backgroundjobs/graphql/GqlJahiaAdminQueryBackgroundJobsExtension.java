@@ -24,13 +24,18 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @GraphQLTypeExtension(DXGraphQLProvider.Query.class)
 @GraphQLDescription("Add Page Builder background jobs query at root level")
 public class GqlJahiaAdminQueryBackgroundJobsExtension {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GqlJahiaAdminQueryBackgroundJobsExtension.class);
     private static final String CAN_ACCESS_JOBS_INFORMATION = "canAccessJobsInformation";
     private static final String ADMIN_PERMISSION = "admin";
     private static final String PERMISSION_DENIED_MESSAGE = "Permission denied";
@@ -41,21 +46,35 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     public static List<GqlPageBuilderBackgroundJob> getPageBuilderBackgroundJobs(@GraphQLName("siteKey") String siteKey,
                                                                                   @GraphQLName("path") String path,
                                                                                   DataFetchingEnvironment environment) throws SchedulerException {
-        if (!hasJobsPermission(siteKey, path, environment)) {
+        // SEC-140: scope the result to the sites the caller is actually authorized on. getVisibleJobs()
+        // returns jobs for the WHOLE instance, so the returned set must be filtered against the caller's
+        // authorization, never against the caller-supplied siteKey argument (which is attacker-controlled
+        // and may simply be omitted). Only an unrestricted principal (root / server-wide grant) sees all.
+        JobsAccess access = resolveJobsAccess(siteKey, path, environment);
+        if (!access.isGranted()) {
             throw new SecurityException(PERMISSION_DENIED_MESSAGE);
         }
 
         List<JobDetail> jobs = getVisibleJobs();
         java.util.stream.Stream<GqlPageBuilderBackgroundJob> stream =
                 jobs.stream().map(GqlPageBuilderBackgroundJob::from);
-        // SEC-140: the permission is validated against the requested site, but getVisibleJobs() returns
-        // jobs for the whole instance. Scope the result to the requested site so a caller authorized on a
-        // single site cannot read other sites' publication-job metadata (incl. other users' userKey). The
-        // global "show all" toggle (an explicit operator opt-in) keeps the full, unfiltered list.
-        if (!isShowAllJobsEnabled() && siteKey != null && !siteKey.isEmpty()) {
-            stream = stream.filter(job -> siteKey.equals(job.getSiteKey()));
+        return stream.filter(job -> isVisibleTo(job, access)).collect(Collectors.toList());
+    }
+
+    /**
+     * Whether a single job may be shown to a caller holding {@code access}. Package-private so the
+     * SEC-140 scoping rule can be unit-tested without standing up a JCR session.
+     */
+    static boolean isVisibleTo(GqlPageBuilderBackgroundJob job, JobsAccess access) {
+        if (!access.isGranted()) {
+            return false;
         }
-        return stream.collect(Collectors.toList());
+        if (access.isUnrestricted()) {
+            return true;
+        }
+        // Jobs with no siteKey are instance-level and are not attributable to an authorized site,
+        // so a site-scoped caller must not see them either.
+        return job.getSiteKey() != null && access.getAuthorizedSiteKeys().contains(job.getSiteKey());
     }
 
     /** The {@code showAllJobs} config flag, read WITHOUT a permission gate (used for internal scoping). */
@@ -70,7 +89,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     public static boolean canAccessPageBuilderBackgroundJobs(@GraphQLName("siteKey") String siteKey,
                                                              @GraphQLName("path") String path,
                                                              DataFetchingEnvironment environment) {
-        return hasJobsPermission(siteKey, path, environment);
+        return resolveJobsAccess(siteKey, path, environment).isGranted();
     }
 
     @GraphQLField
@@ -79,31 +98,140 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     public static boolean pageBuilderBackgroundJobsShowAll(DataFetchingEnvironment environment) {
         // SEC-140 (C3): gate this config probe behind the same jobs permission (was ungated, so any
         // authenticated user could read the flag). null site/path -> guest rejected, root allowed,
-        // else the any-site fallback check applies.
-        if (!hasJobsPermission(null, null, environment)) {
+        // else granted only if the caller is authorized on at least one site.
+        if (!resolveJobsAccess(null, null, environment).isGranted()) {
             return false;
         }
         return isShowAllJobsEnabled();
     }
 
-    private static boolean hasJobsPermission(String siteKey, String path, DataFetchingEnvironment environment) {
+    /**
+     * Resolves what the caller may see, rather than answering a plain yes/no. The distinction matters:
+     * the previous {@code hasJobsPermission} returned a boolean, so the caller-supplied {@code siteKey}
+     * was the only thing left to filter on — and it is attacker-controlled (SEC-140).
+     */
+    private static JobsAccess resolveJobsAccess(String siteKey, String path, DataFetchingEnvironment environment) {
         try (PermissionContext context = openPermissionContext(environment)) {
             if (isGuestUser(context.effectiveUser)) {
-                return false;
+                return JobsAccess.denied();
             }
             if (isRootUser(context.effectiveUser)) {
-                return true;
+                return JobsAccess.unrestricted();
             }
-            if (hasPermissionOnRequestedPath(context.session, path, environment)) {
-                return true;
-            }
-            if (hasPermissionOnSite(context.session, siteKey, environment)) {
-                return true;
+            // A grant on the repository root is genuinely instance-wide, so such a principal legitimately
+            // sees every site's jobs (including instance-level jobs that carry no siteKey).
+            // The security-filter global scope check is deliberately NOT consulted here: it reports API
+            // scopes, not the caller's roles on a node, and the advisory (§6, bullet 3) calls out that
+            // fallback as part of the defect.
+            if (hasAnyPermissionOnPath(context.session, "/", environment)) {
+                return JobsAccess.unrestricted();
             }
 
-            return hasFallbackPermission(context.session, environment);
+            Set<String> authorizedSiteKeys = collectAuthorizedSiteKeys(context.session, environment);
+            String requestedSiteKey = resolveRequestedSiteKey(siteKey, path);
+
+            // SEC-140 remediation (§6, bullet 3): when a specific site is requested the caller must hold
+            // the permission on THAT site. The previous any-site / global-scope fallback let a grantee on
+            // site A pass the probe for site B — the scope confusion this advisory is about.
+            if (requestedSiteKey != null) {
+                boolean granted = authorizedSiteKeys.contains(requestedSiteKey)
+                        || hasPermissionOnRequestedPath(context.session, path, environment);
+                return granted
+                        ? JobsAccess.scopedTo(Collections.singleton(requestedSiteKey))
+                        : JobsAccess.denied();
+            }
+
+            // No site requested: fall back to the caller's own authorized set, never to the global list.
+            return authorizedSiteKeys.isEmpty()
+                    ? JobsAccess.denied()
+                    : JobsAccess.scopedTo(authorizedSiteKeys);
         } catch (RepositoryException e) {
-            throw new RuntimeException("Unable to verify background jobs permission", e);
+            throw new IllegalStateException("Unable to verify background jobs permission", e);
+        }
+    }
+
+    /** Every site under {@code /sites} on which the caller holds one of the jobs permissions. */
+    private static Set<String> collectAuthorizedSiteKeys(JCRSessionWrapper session, DataFetchingEnvironment environment) {
+        Set<String> authorized = new LinkedHashSet<>();
+        try {
+            if (session == null || !session.nodeExists("/sites")) {
+                return authorized;
+            }
+
+            NodeIterator sites = session.getNode("/sites").getNodes();
+            while (sites.hasNext()) {
+                Node site = sites.nextNode();
+                if (hasAnyPermissionOnPath(session, site.getPath(), environment)) {
+                    authorized.add(site.getName());
+                }
+            }
+        } catch (RepositoryException e) {
+            LOGGER.warn("Unable to enumerate authorized sites for background jobs; denying by default", e);
+            return Collections.emptySet();
+        }
+        return authorized;
+    }
+
+    /**
+     * The site key the caller is asking about, taken from {@code siteKey} or derived from {@code path}.
+     * Package-private for testing.
+     */
+    static String resolveRequestedSiteKey(String siteKey, String path) {
+        String normalizedSiteKey = normalize(siteKey);
+        if (normalizedSiteKey != null) {
+            return normalizedSiteKey.startsWith("/sites/")
+                    ? firstSegment(normalizedSiteKey.substring("/sites/".length()))
+                    : normalizedSiteKey;
+        }
+
+        String normalizedPath = normalize(path);
+        if (normalizedPath != null && normalizedPath.startsWith("/sites/")) {
+            return firstSegment(normalizedPath.substring("/sites/".length()));
+        }
+
+        return null;
+    }
+
+    private static String firstSegment(String value) {
+        int slash = value.indexOf('/');
+        String segment = slash == -1 ? value : value.substring(0, slash);
+        return segment.isEmpty() ? null : segment;
+    }
+
+    /** Outcome of an authorization check: denied, unrestricted, or limited to a set of site keys. */
+    static final class JobsAccess {
+        private final boolean granted;
+        private final boolean unrestricted;
+        private final Set<String> authorizedSiteKeys;
+
+        private JobsAccess(boolean granted, boolean unrestricted, Set<String> authorizedSiteKeys) {
+            this.granted = granted;
+            this.unrestricted = unrestricted;
+            this.authorizedSiteKeys = authorizedSiteKeys;
+        }
+
+        static JobsAccess denied() {
+            return new JobsAccess(false, false, Collections.emptySet());
+        }
+
+        static JobsAccess unrestricted() {
+            return new JobsAccess(true, true, Collections.emptySet());
+        }
+
+        static JobsAccess scopedTo(Set<String> siteKeys) {
+            return new JobsAccess(true, false, Collections.unmodifiableSet(new LinkedHashSet<>(siteKeys)));
+        }
+
+        boolean isGranted() {
+            return granted;
+        }
+
+        boolean isUnrestricted() {
+            return unrestricted;
+        }
+
+        Set<String> getAuthorizedSiteKeys() {
+            return authorizedSiteKeys;
         }
     }
 
@@ -117,7 +245,17 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
             sessionFactory.setCurrentUser(effectiveUser);
         }
 
-        return new PermissionContext(initialUser, effectiveUser, getCurrentUserSession(sessionFactory), userInjected);
+        try {
+            return new PermissionContext(initialUser, effectiveUser, getCurrentUserSession(sessionFactory), userInjected);
+        } catch (RepositoryException | RuntimeException e) {
+            // Without this, a failure to open the session leaves the injected identity bound to the pooled
+            // request thread (PermissionContext was never built, so its close() never runs) and the next
+            // request served by that thread inherits it.
+            if (userInjected) {
+                sessionFactory.setCurrentUser(initialUser);
+            }
+            throw e;
+        }
     }
 
     private static JCRSessionWrapper getCurrentUserSession(JCRSessionFactory sessionFactory) throws RepositoryException {
@@ -152,35 +290,9 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         return normalizedPath != null && hasAnyPermissionOnPath(session, normalizedPath, environment);
     }
 
-    private static boolean hasPermissionOnSite(JCRSessionWrapper session, String siteKey, DataFetchingEnvironment environment) {
-        String normalizedSiteKey = normalize(siteKey);
-        if (normalizedSiteKey == null) {
-            return false;
-        }
-
-        String sitePath = normalizedSiteKey.startsWith("/sites/") ? normalizedSiteKey : "/sites/" + normalizedSiteKey;
-        return hasAnyPermissionOnPath(session, sitePath, environment);
-    }
-
-    private static boolean hasFallbackPermission(JCRSessionWrapper session, DataFetchingEnvironment environment) {
-        return hasAnyPermissionOnPath(session, "/", environment)
-                || hasAnyGlobalPermission(environment)
-                || hasAnyPermissionOnAnySite(session, environment);
-    }
-
     private static boolean hasAnyPermissionOnPath(JCRSessionWrapper session, String path, DataFetchingEnvironment environment) {
         return hasPermissionOnPath(session, path, ADMIN_PERMISSION, environment)
                 || hasPermissionOnPath(session, path, CAN_ACCESS_JOBS_INFORMATION, environment);
-    }
-
-    private static boolean hasAnyGlobalPermission(DataFetchingEnvironment environment) {
-        return hasPermissionFromSecurityFilter(ADMIN_PERMISSION, environment)
-                || hasPermissionFromSecurityFilter(CAN_ACCESS_JOBS_INFORMATION, environment);
-    }
-
-    private static boolean hasAnyPermissionOnAnySite(JCRSessionWrapper session, DataFetchingEnvironment environment) {
-        return hasPermissionOnAnySite(session, ADMIN_PERMISSION, environment)
-                || hasPermissionOnAnySite(session, CAN_ACCESS_JOBS_INFORMATION, environment);
     }
 
     private static String normalize(String value) {
@@ -230,37 +342,6 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         return hasPermissionWithService(path, permission, environment);
     }
 
-    private static boolean hasPermissionOnAnySite(JCRSessionWrapper session, String permission, DataFetchingEnvironment environment) {
-        try {
-            if (session == null) {
-                return false;
-            }
-            if (!session.nodeExists("/sites")) {
-                return false;
-            }
-
-            NodeIterator sites = session.getNode("/sites").getNodes();
-            while (sites.hasNext()) {
-                Node site = sites.nextNode();
-                if (hasPermissionOnPath(session, site.getPath(), permission, environment)) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (RepositoryException e) {
-            return false;
-        }
-    }
-
-    private static boolean hasPermissionFromSecurityFilter(String permission, DataFetchingEnvironment environment) {
-        try {
-            PermissionService permissionService = BundleUtils.getOsgiService(PermissionService.class, null);
-            return permissionService != null && permissionService.hasPermission(permission);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private static boolean hasPermissionWithService(String path, String permission, DataFetchingEnvironment environment) {
         try {
             if (path == null || path.trim().isEmpty() || environment == null) {
@@ -276,21 +357,16 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
                 return false;
             }
 
+            // SEC-140: evaluate the permission ONLY against the caller's own session. The previous code
+            // retried the same check on a system session — which bypasses ACLs by design, so any path that
+            // merely existed satisfied it — and then fell through to the security-filter's global scope
+            // check, which is about API scopes, not the caller's roles on this node. Both turned a
+            // path-specific probe into an instance-wide grant.
             JCRSessionWrapper currentSession = JCRSessionFactory.getInstance().getCurrentUserSession(DEFAULT_WORKSPACE);
-            if (currentSession != null && currentSession.nodeExists(path) &&
-                    permissionService.hasPermission(permission, currentSession.getNode(path))) {
-                return true;
-            }
-
-            JCRSessionWrapper systemSession = JCRSessionFactory.getInstance()
-                    .getCurrentSystemSession(DEFAULT_WORKSPACE, Locale.ENGLISH, Locale.ENGLISH);
-            if (systemSession != null && systemSession.nodeExists(path) &&
-                    permissionService.hasPermission(permission, systemSession.getNode(path))) {
-                return true;
-            }
-
-            return permissionService.hasPermission(permission);
-        } catch (Exception e) {
+            return currentSession != null && currentSession.nodeExists(path)
+                    && permissionService.hasPermission(permission, currentSession.getNode(path));
+        } catch (RepositoryException e) {
+            LOGGER.debug("Permission check via PermissionService failed for path {} and permission {}", path, permission, e);
             return false;
         }
     }
