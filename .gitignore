@@ -4,3 +4,4 @@ target/
 src/main/resources/javascript/apps/
 .DS_Store
 .idea
+.codegraph/

@@ -29,8 +29,11 @@
         "react-dom": "^18.3.1",
         "react-redux": "^9.2.0"
     },
+    "resolutions": {
+        "serialize-javascript": "^7.0.5"
+    },
     "devDependencies": {
-        "@babel/core": "^7.6.2",
+        "@babel/core": "^7.29.6",
         "@babel/preset-env": "^7.6.2",
         "@babel/preset-react": "^7.0.0",
         "@jahia/webpack-config": "^1.0.0",
