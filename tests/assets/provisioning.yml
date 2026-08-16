@@ -1,0 +1,10 @@
+- karafCommand: "log:log 'START - provisioning'"
+
+- karafCommand: "log:log 'START - Install pagebuilder-background-jobs dependencies'"
+- installBundle:
+      - 'mvn:org.jahia.modules/graphql-dxm-provider/LATEST'
+  autoStart: true
+  uninstallPreviousVersion: false
+- karafCommand: "log:log 'END - Install pagebuilder-background-jobs dependencies'"
+
+- karafCommand: "log:log 'END - provisioning'"

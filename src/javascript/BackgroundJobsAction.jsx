@@ -29,6 +29,14 @@ export const BackgroundJobsActionComponent = ({render: Render, ...others}) => {
         variables: {siteKey: effectiveSiteKey, path: currentPath}
     });
 
+    if (error) {
+        // Surface genuine backend/network failures instead of silently treating them
+        // the same as "access denied": this at least gives developers/support a trace
+        // to distinguish "not permitted" (hasAccess === false, no error) from
+        // "backend broken" (query errored) without adding a user-facing UI element.
+        console.error('BackgroundJobsActionComponent: failed to load access to background jobs', error);
+    }
+
     const hasAccess = Boolean(data?.canAccessPageBuilderBackgroundJobs);
     const showAllJobs = Boolean(data?.showAllJobs);
     const isVisible = isPageBuilderMode && hasAccess && !error;

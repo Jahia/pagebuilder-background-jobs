@@ -161,4 +161,85 @@ public class GqlJahiaAdminQueryBackgroundJobsExtensionTest {
         assertFalse(scoped.getAuthorizedSiteKeys().contains("pocsite"));
         assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isVisibleTo(jobForSite("pocsite"), scoped));
     }
+
+    /** Case-sensitive comparison: a scoped grant for "sitea" must not match a job for "SiteA". */
+    @Test
+    public void isVisibleTo_isCaseSensitive_differentCasingSiteKeyIsHidden() {
+        JobsAccess scoped = JobsAccess.scopedTo(Collections.singleton("sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isVisibleTo(jobForSite("SiteA"), scoped));
+    }
+
+    // --- resolveRequestedSiteKey: additional edge cases not covered above ---------------------
+
+    /** siteKey given as a nested path (e.g. "/sites/x/y") unwraps to only the first segment. */
+    @Test
+    public void resolveRequestedSiteKey_siteKeyGivenAsNestedPath_unwrapsToFirstSegmentOnly() {
+        assertEquals("sitea",
+                GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("/sites/sitea/somepage", null));
+    }
+
+    @Test
+    public void resolveRequestedSiteKey_siteKeyGivenAsPathWithTrailingSlash_isUnwrapped() {
+        assertEquals("sitea",
+                GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("/sites/sitea/", null));
+    }
+
+    /**
+     * A plain siteKey and a "/sites/"-prefixed one normalize identically. The plain branch used to
+     * return the value verbatim, so "sitea/" matched nothing and the request was denied; it failed
+     * closed, but the asymmetry was a trap for later edits.
+     */
+    @Test
+    public void resolveRequestedSiteKey_trailingSlash_isStrippedForBothForms() {
+        assertEquals("sitea",
+                GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("sitea/", null));
+        assertEquals("sitea",
+                GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("/sites/sitea/", null));
+    }
+
+    /** siteKey resolution does not normalize case; callers must match casing exactly. */
+    @Test
+    public void resolveRequestedSiteKey_isCaseSensitive_doesNotNormalizeCase() {
+        assertEquals("SiteA", GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("SiteA", null));
+    }
+
+    // --- pathBelongsToSite: additional edge cases not covered above ---------------------------
+
+    @Test
+    public void pathBelongsToSite_isCaseSensitive_rejectsDifferentCasing() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/SiteA"));
+    }
+
+    @Test
+    public void pathBelongsToSite_acceptsPathWithTrailingSlash() {
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea/"));
+    }
+
+    // --- JobsAccess factories: direct assertions on the returned state ------------------------
+
+    @Test
+    public void jobsAccessDenied_isNotGrantedNorUnrestrictedAndHasNoSiteKeys() {
+        JobsAccess denied = JobsAccess.denied();
+        assertFalse(denied.isGranted());
+        assertFalse(denied.isUnrestricted());
+        assertTrue(denied.getAuthorizedSiteKeys().isEmpty());
+    }
+
+    @Test
+    public void jobsAccessUnrestricted_isGrantedAndUnrestrictedWithNoExplicitSiteKeys() {
+        JobsAccess unrestricted = JobsAccess.unrestricted();
+        assertTrue(unrestricted.isGranted());
+        assertTrue(unrestricted.isUnrestricted());
+        // Unrestricted access sees everything regardless of siteKey membership (see
+        // unrestrictedAccess_seesEveryJobIncludingInstanceLevel), so the explicit set is empty.
+        assertTrue(unrestricted.getAuthorizedSiteKeys().isEmpty());
+    }
+
+    @Test
+    public void jobsAccessScopedTo_isGrantedButNotUnrestrictedAndExposesGivenSiteKeys() {
+        JobsAccess scoped = JobsAccess.scopedTo(setOf("sitea", "siteb"));
+        assertTrue(scoped.isGranted());
+        assertFalse(scoped.isUnrestricted());
+        assertEquals(setOf("sitea", "siteb"), scoped.getAuthorizedSiteKeys());
+    }
 }

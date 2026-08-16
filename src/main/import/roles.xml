@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<roles jcr:primaryType="jnt:roles"
+       xmlns:jcr="http://www.jcp.org/jcr/1.0"
+       xmlns:j="http://www.jahia.org/jahia/1.0"
+       xmlns:jnt="http://www.jahia.org/jahia/nt/1.0">
+
+    <!--
+        The module previously shipped only the `canAccessJobsInformation` permission, with no role
+        carrying it. An operator had to author a role by hand before anyone but `root` could open the
+        dialog, so the feature was effectively inert on a fresh install.
+
+        Two roles are shipped because the backend distinguishes two levels of access
+        (see GqlJahiaAdminQueryBackgroundJobsExtension#resolveJobsAccess):
+
+          - a grant on a SITE       -> the caller sees that site's jobs only
+          - a grant on the ROOT `/` -> the caller sees every site, plus instance-level jobs
+
+        j:privilegedAccess="true" is required on the site role: without it Jahia's AclListener never
+        adds the grantee to the site's "privileged" group, and the JContent Page Builder is not
+        reachable at all.
+    -->
+
+    <background-jobs-viewer jcr:primaryType="jnt:role"
+                            j:nodeTypes="jnt:virtualsite"
+                            j:roleGroup="site-role"
+                            j:permissionNames="canAccessJobsInformation"
+                            j:privilegedAccess="true">
+        <j:translation_en jcr:primaryType="jnt:translation"
+                          jcr:language="en"
+                          jcr:title="Background jobs viewer"
+                          jcr:description="Grants read access to the Page Builder background jobs dialog for the site this role is assigned on"/>
+    </background-jobs-viewer>
+
+    <background-jobs-administrator jcr:primaryType="jnt:role"
+                                   j:nodeTypes="rep:root"
+                                   j:roleGroup="server-role"
+                                   j:permissionNames="canAccessJobsInformation"
+                                   j:privilegedAccess="true">
+        <j:translation_en jcr:primaryType="jnt:translation"
+                          jcr:language="en"
+                          jcr:title="Background jobs administrator"
+                          jcr:description="Grants read access to background jobs across every site, including instance-level jobs, without requiring full server administrator rights"/>
+    </background-jobs-administrator>
+</roles>
