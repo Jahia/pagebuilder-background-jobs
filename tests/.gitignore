@@ -3,6 +3,12 @@ build-dependencies
 coverage
 cypress/videos
 .env
+.env.*
+!.env.example
+# Editor swap/backup files. A committed .env.swp leaked a signed Jahia EE license and the
+# superuser password past the `.env` rule above — the swap file is a different name.
+*.sw?
+*~
 instrumented/
 node_modules/
 .nyc_output/

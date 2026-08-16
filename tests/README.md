@@ -212,7 +212,9 @@ mvn test
 
 Tests run against:
 
-- `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/GqlJahiaAdminQueryBackgroundJobsExtensionTest.java`
+- `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/GqlJahiaAdminQueryBackgroundJobsExtensionTest.java` — authorization: `JobsAccess`, site-key/path resolution, canonical-path guard
+- `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/graphql/GqlPageBuilderBackgroundJobTest.java` — JobDataMap mapping: date/duration parsing, the seconds-vs-millis boundary, status→state
+- `src/test/java/org/jahia/support/modules/pagebuilder/backgroundjobs/service/PageBuilderBackgroundJobsServiceTest.java` — OSGi config coercion and publication-job filtering
 
 Covers:
 - Authorization checks (`JobsAccess` logic).

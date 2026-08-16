@@ -1,3 +1,13 @@
 results/
 run-artifacts/
 node_modules
+
+# The Dockerfile does `COPY . /home/jahians`, so anything left here is baked into an image
+# layer of ${TESTS_IMAGE}. tests/README.md tells developers to put a real Jahia EE license in
+# .env before building, so these exclusions are what stops that license shipping in the image.
+.env
+.env.*
+!.env.example
+*.sw?
+*~
+.git

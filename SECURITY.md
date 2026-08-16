@@ -13,8 +13,10 @@
 
 **Severity**: Medium — CVSS 3.1 4.3 (`AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N`), CWE-863 / CWE-200.
 
-**Status**: remediated on `main` in the 1.0.1 development line. **No fixed release exists yet**, so
-every published artifact (1.0.0) is affected.
+**Status**: **not yet fixed on `main`.** `main` currently carries only the first, partial remediation —
+it still contains bypasses 2, 3 and 4 below. The complete fix is on the
+`fix/scope-jobs-to-authorized-sites` branch, pending review and merge. No fixed release exists, so every
+published artifact (1.0.0) is affected, and building from `main` today does not produce a fixed module.
 
 **Issue**: `pageBuilderBackgroundJobs` verified the caller's permission against a caller-supplied
 `siteKey`/`path`, but returned jobs for the whole instance. A principal granted
@@ -28,6 +30,9 @@ Three distinct routes were found and closed:
    skipped the filter and returned the instance-wide list again.
 3. Pairing a `siteKey` for one site with a `path` inside another — the permission was checked against
    `path` while the result was scoped to `siteKey`.
+4. A `..` traversal path such as `/sites/siteB/../siteA`. JCR collapses `..` before resolving, so a
+   string-parsed site key (`siteB`) and the node the permission was actually evaluated on
+   (`/sites/siteA`) disagreed — the same defect one layer down.
 
 **Fix**: access is now resolved to one of *denied*, *unrestricted* (root, or a grant on the repository
 root), or *scoped to the set of sites the caller actually holds the permission on*, and the returned

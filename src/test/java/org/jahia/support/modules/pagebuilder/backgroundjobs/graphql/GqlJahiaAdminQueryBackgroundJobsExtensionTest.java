@@ -74,37 +74,52 @@ public class GqlJahiaAdminQueryBackgroundJobsExtensionTest {
         assertNull(GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey(null, "/sites/"));
     }
 
-    // --- pathBelongsToSite -------------------------------------------------------------------
+    // --- isCanonicalPath ----------------------------------------------------------------------
 
     /**
-     * The siteKey/path mismatch bypass. resolveRequestedSiteKey lets siteKey win over path, so a
-     * path-based permission fallback must refuse to authorize a DIFFERENT site than the path's own —
-     * otherwise `siteKey=siteB&path=/sites/siteA/home` reads siteB's jobs off a siteA grant.
+     * The traversal bypass. Deciding the site by string-parsing the caller's path while asking JCR
+     * about that same raw string lets the two disagree: JCR collapses "." and ".." before resolving,
+     * so "/sites/siteB/../siteA" parses as siteB but authorizes against siteA — permission checked on
+     * one resource, answer scoped to another. Authorization now derives the site from the RESOLVED
+     * node; isCanonicalPath rejects such input up front as defense in depth.
      */
     @Test
-    public void pathBelongsToSite_rejectsPathFromAnotherSite() {
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("pocsite", "/sites/sitea/home"));
+    public void isCanonicalPath_rejectsParentTraversal() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/siteb/../sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/siteb/./../sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/siteb/../../sites/sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/.."));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/.."));
     }
 
     @Test
-    public void pathBelongsToSite_acceptsPathInsideTheRequestedSite() {
-        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea"));
-        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea/home/page1"));
+    public void isCanonicalPath_rejectsCurrentDirectorySegments() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/./sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/."));
     }
 
     @Test
-    public void pathBelongsToSite_rejectsNullBlankAndNonSitePaths() {
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", null));
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "   "));
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/modules/foo"));
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite(null, "/sites/sitea"));
+    public void isCanonicalPath_rejectsEmptySegmentsDerefAndOverlongInput() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites//sitea"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/@/foo"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("relative/path"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath(null));
+
+        StringBuilder overlong = new StringBuilder("/sites/sitea");
+        while (overlong.length() <= 2048) {
+            overlong.append("/segment");
+        }
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath(overlong.toString()));
     }
 
-    /** A site whose key merely prefixes another must not match. */
     @Test
-    public void pathBelongsToSite_doesNotMatchOnPrefix() {
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("site", "/sites/sitea/home"));
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/siteabc/home"));
+    public void isCanonicalPath_acceptsOrdinarySitePaths() {
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/"));
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea"));
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/home/page1"));
+        // A segment merely CONTAINING dots is fine; only whole "." / ".." segments traverse.
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/my.page"));
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.isCanonicalPath("/sites/sitea/..page"));
     }
 
     // --- isVisibleTo -------------------------------------------------------------------------
@@ -203,17 +218,6 @@ public class GqlJahiaAdminQueryBackgroundJobsExtensionTest {
         assertEquals("SiteA", GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey("SiteA", null));
     }
 
-    // --- pathBelongsToSite: additional edge cases not covered above ---------------------------
-
-    @Test
-    public void pathBelongsToSite_isCaseSensitive_rejectsDifferentCasing() {
-        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/SiteA"));
-    }
-
-    @Test
-    public void pathBelongsToSite_acceptsPathWithTrailingSlash() {
-        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea/"));
-    }
 
     // --- JobsAccess factories: direct assertions on the returned state ------------------------
 

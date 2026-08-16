@@ -9,8 +9,10 @@ import org.jahia.modules.graphql.provider.dxm.DXGraphQLProvider;
 import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.registries.ServicesRegistry;
+import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
+import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.content.decorator.JCRUserNode;
 import org.jahia.services.securityfilter.PermissionService;
 import org.jahia.services.scheduler.SchedulerService;
@@ -40,6 +42,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     private static final String ADMIN_PERMISSION = "admin";
     private static final String PERMISSION_DENIED_MESSAGE = "Permission denied";
     private static final String DEFAULT_WORKSPACE = "default";
+    private static final int MAX_PATH_LENGTH = 2048;
     @GraphQLField
     @GraphQLName("pageBuilderBackgroundJobs")
     @GraphQLDescription("Background jobs list for Page Builder dialog")
@@ -168,16 +171,53 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
             return true;
         }
 
-        return pathBelongsToSite(requestedSiteKey, path)
-                && hasPermissionOnRequestedPath(context.session, path, environment);
+        String normalizedPath = normalize(path);
+        if (normalizedPath == null || context.session == null || !isCanonicalPath(normalizedPath)) {
+            return false;
+        }
+
+        try {
+            if (!context.session.nodeExists(normalizedPath)) {
+                return false;
+            }
+
+            // Resolve the node FIRST, then derive the site from the node JCR actually returned.
+            // Deciding the site by parsing the caller's string and then asking JCR about that same
+            // string lets the two disagree: JCR collapses "." and ".." before resolving, so
+            // "/sites/siteB/../siteA" parses as siteB but authorizes against siteA. That is the
+            // permission-checked-on-one-resource, answer-scoped-to-another bug all over again.
+            JCRNodeWrapper node = context.session.getNode(normalizedPath);
+            JCRSiteNode site = node.getResolveSite();
+            if (site == null || !requestedSiteKey.equals(site.getSiteKey())) {
+                return false;
+            }
+
+            // Check the permission on the canonical path of the resolved node, never the raw input.
+            return hasAnyPermissionOnPath(context.session, node.getPath(), environment);
+        } catch (RepositoryException e) {
+            LOGGER.warn("Unable to resolve requested path {} for background jobs; denying", normalizedPath, e);
+            return false;
+        }
     }
 
     /**
-     * Whether {@code path} lies inside {@code requestedSiteKey}. Package-private so the SEC-140 guard
-     * can be unit-tested without a JCR session.
+     * Rejects non-canonical paths up front: no "." or ".." segments, no empty segments, and no Jahia
+     * deref separator. Defense in depth — {@link #isAuthorizedOnRequestedSite} no longer relies on
+     * string parsing to decide the site, but refusing traversal input early keeps the JCR lookup
+     * honest and bounds the input. Package-private for testing.
      */
-    static boolean pathBelongsToSite(String requestedSiteKey, String path) {
-        return requestedSiteKey != null && requestedSiteKey.equals(resolveRequestedSiteKey(null, path));
+    static boolean isCanonicalPath(String path) {
+        if (path == null || !path.startsWith("/") || path.length() > MAX_PATH_LENGTH || path.contains("//")
+                || path.contains("/@/")) {
+            return false;
+        }
+
+        for (String segment : path.substring(1).split("/")) {
+            if (".".equals(segment) || "..".equals(segment)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Every site under {@code /sites} on which the caller holds one of the jobs permissions. */
