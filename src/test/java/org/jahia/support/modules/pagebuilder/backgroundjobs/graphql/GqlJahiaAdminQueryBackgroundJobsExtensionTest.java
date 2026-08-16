@@ -74,6 +74,39 @@ public class GqlJahiaAdminQueryBackgroundJobsExtensionTest {
         assertNull(GqlJahiaAdminQueryBackgroundJobsExtension.resolveRequestedSiteKey(null, "/sites/"));
     }
 
+    // --- pathBelongsToSite -------------------------------------------------------------------
+
+    /**
+     * The siteKey/path mismatch bypass. resolveRequestedSiteKey lets siteKey win over path, so a
+     * path-based permission fallback must refuse to authorize a DIFFERENT site than the path's own —
+     * otherwise `siteKey=siteB&path=/sites/siteA/home` reads siteB's jobs off a siteA grant.
+     */
+    @Test
+    public void pathBelongsToSite_rejectsPathFromAnotherSite() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("pocsite", "/sites/sitea/home"));
+    }
+
+    @Test
+    public void pathBelongsToSite_acceptsPathInsideTheRequestedSite() {
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea"));
+        assertTrue(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/sitea/home/page1"));
+    }
+
+    @Test
+    public void pathBelongsToSite_rejectsNullBlankAndNonSitePaths() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", null));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "   "));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/modules/foo"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite(null, "/sites/sitea"));
+    }
+
+    /** A site whose key merely prefixes another must not match. */
+    @Test
+    public void pathBelongsToSite_doesNotMatchOnPrefix() {
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("site", "/sites/sitea/home"));
+        assertFalse(GqlJahiaAdminQueryBackgroundJobsExtension.pathBelongsToSite("sitea", "/sites/siteabc/home"));
+    }
+
     // --- isVisibleTo -------------------------------------------------------------------------
 
     @Test

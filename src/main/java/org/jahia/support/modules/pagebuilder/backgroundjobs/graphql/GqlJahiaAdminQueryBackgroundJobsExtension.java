@@ -77,7 +77,10 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         return job.getSiteKey() != null && access.getAuthorizedSiteKeys().contains(job.getSiteKey());
     }
 
-    /** The {@code showAllJobs} config flag, read WITHOUT a permission gate (used for internal scoping). */
+    /**
+     * Backing value for the public {@code pageBuilderBackgroundJobsShowAll} field. Callers must gate this
+     * themselves — see {@link #pageBuilderBackgroundJobsShowAll}.
+     */
     private static boolean isShowAllJobsEnabled() {
         PageBuilderBackgroundJobsService service = BundleUtils.getOsgiService(PageBuilderBackgroundJobsService.class, null);
         return service != null && service.isShowAllJobs();
@@ -134,9 +137,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
             // the permission on THAT site. The previous any-site / global-scope fallback let a grantee on
             // site A pass the probe for site B — the scope confusion this advisory is about.
             if (requestedSiteKey != null) {
-                boolean granted = authorizedSiteKeys.contains(requestedSiteKey)
-                        || hasPermissionOnRequestedPath(context.session, path, environment);
-                return granted
+                return isAuthorizedOnRequestedSite(context, requestedSiteKey, path, authorizedSiteKeys, environment)
                         ? JobsAccess.scopedTo(Collections.singleton(requestedSiteKey))
                         : JobsAccess.denied();
             }
@@ -148,6 +149,35 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         } catch (RepositoryException e) {
             throw new IllegalStateException("Unable to verify background jobs permission", e);
         }
+    }
+
+    /**
+     * Whether the caller may see {@code requestedSiteKey}.
+     *
+     * <p>A grant deeper than the site node (e.g. on a single page) legitimately authorizes that page's
+     * site, so {@code path} is consulted as a fallback — but ONLY when {@code path} actually belongs to
+     * the requested site. {@code resolveRequestedSiteKey} lets {@code siteKey} win over {@code path}, so
+     * checking the permission against {@code path} while scoping the answer to {@code siteKey} would let
+     * a caller pair {@code siteKey=siteB} with {@code path=/sites/siteA/home} and read siteB's jobs off a
+     * siteA grant — re-introducing the exact scope confusion SEC-140 is about.
+     */
+    private static boolean isAuthorizedOnRequestedSite(PermissionContext context, String requestedSiteKey,
+                                                       String path, Set<String> authorizedSiteKeys,
+                                                       DataFetchingEnvironment environment) {
+        if (authorizedSiteKeys.contains(requestedSiteKey)) {
+            return true;
+        }
+
+        return pathBelongsToSite(requestedSiteKey, path)
+                && hasPermissionOnRequestedPath(context.session, path, environment);
+    }
+
+    /**
+     * Whether {@code path} lies inside {@code requestedSiteKey}. Package-private so the SEC-140 guard
+     * can be unit-tested without a JCR session.
+     */
+    static boolean pathBelongsToSite(String requestedSiteKey, String path) {
+        return requestedSiteKey != null && requestedSiteKey.equals(resolveRequestedSiteKey(null, path));
     }
 
     /** Every site under {@code /sites} on which the caller holds one of the jobs permissions. */
