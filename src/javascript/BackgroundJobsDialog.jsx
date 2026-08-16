@@ -75,7 +75,7 @@ const readSessionState = () => {
 
         const parsed = JSON.parse(raw);
         return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (e) {
+    } catch (_) {
         return null;
     }
 };
@@ -87,7 +87,7 @@ const writeSessionState = state => {
 
     try {
         window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
+    } catch (_) {
         // Ignore session storage failures.
     }
 };
@@ -169,7 +169,7 @@ const formatCreationDate = job => {
             // not change the date part's language, order or separators, so it stays
             // consistent with the user's own locale conventions.
             return new Date(timestamp).toLocaleString(undefined, {hour12: false});
-        } catch (e) {
+        } catch (_) {
             return '-';
         }
     }
@@ -207,7 +207,7 @@ const toJobKey = (job, index) => [
     index
 ].join('|');
 
-export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, initialShowAllJobs = false}) => {
+export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, isInitialShowAll = false}) => {
     const [autoRefresh, setAutoRefresh] = useState(() => {
         const state = readSessionState();
         return typeof state?.autoRefresh === 'boolean' ? state.autoRefresh : false;
@@ -233,7 +233,7 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
         variables: {siteKey, path}
     });
 
-    const showAllJobs = typeof data?.showAllJobs === 'boolean' ? data.showAllJobs : initialShowAllJobs;
+    const showAllJobs = typeof data?.showAllJobs === 'boolean' ? data.showAllJobs : isInitialShowAll;
     const dialogTitle = showAllJobs ? 'BACKGROUND JOBS' : 'PUBLICATION JOBS';
     const emptyMessage = showAllJobs ? 'No background jobs found.' : 'No publication jobs found.';
 
@@ -243,7 +243,7 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
         }
 
         const interval = window.setInterval(() => {
-            // useQuery already surfaces failures through the `error` state (thanks to
+            // UseQuery already surfaces failures through the `error` state (thanks to
             // notifyOnNetworkStatusChange), so we only need to prevent this fire-and-forget
             // call from producing an unhandled promise rejection.
             refetch().catch(() => {});
@@ -387,12 +387,12 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
 
     return (
         <Dialog
-            maxWidth="xl"
             fullWidth
+            maxWidth="xl"
             open={isOpen}
+            aria-labelledby="background-jobs-dialog-title"
             onClose={onClose}
             onExited={onExited}
-            aria-labelledby="background-jobs-dialog-title"
         >
             <DialogTitle id="background-jobs-dialog-title">
                 {dialogTitle}
@@ -403,8 +403,8 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                         control={(
                             <Switch
                                 checked={autoRefresh}
-                                onChange={event => setAutoRefresh(event.target.checked)}
                                 color="primary"
+                                onChange={event => setAutoRefresh(event.target.checked)}
                             />
                         )}
                         label={<span style={{color: '#1f2a33', fontWeight: 500, fontSize: '13px'}}>Auto refresh</span>}
@@ -450,8 +450,8 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                         control={(
                                             <Switch
                                                 checked={groupFilters[group] !== false}
-                                                onChange={() => handleToggleGroup(group)}
                                                 color="primary"
+                                                onChange={() => handleToggleGroup(group)}
                                             />
                                         )}
                                         label={<span style={{color: '#1f2a33', fontWeight: 500, fontSize: '13px'}}>{group}</span>}
@@ -485,13 +485,12 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                         // valid HTML and render identically to the previous single-tbody markup.
                                         <TableBody key={status} id={statusGroupId}>
                                             <TableRow style={{height: 18}}>
-                                                    <TableCell colSpan={6} style={{padding: '0 4px', height: '18px'}}>
+                                                <TableCell colSpan={6} style={{padding: '0 4px', height: '18px'}}>
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleToggleStatus(status)}
                                                         aria-expanded={isExpanded}
                                                         aria-controls={statusGroupId}
-                                                            style={{
+                                                        style={{
                                                                 background: 'none',
                                                                 border: 0,
                                                                 color: STATUS_TOGGLE_COLOR,
@@ -500,6 +499,7 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                                                 fontWeight: 600,
                                                                 padding: 0
                                                             }}
+                                                        onClick={() => handleToggleStatus(status)}
                                                     >
                                                         {isExpanded ? '▼ ' : '▶ '}
                                                         {`STATUS:${status} (${statusCounts[status]} ITEMS)`}
@@ -544,14 +544,14 @@ export const BackgroundJobsDialog = ({isOpen, onClose, onExited, siteKey, path, 
                                 count={expandedVisibleJobs.length}
                                 page={page}
                                 rowsPerPage={rowsPerPage}
+                                rowsPerPageOptions={[50, 25, 10]}
+                                style={{fontSize: '11px', minHeight: '32px'}}
+                                SelectProps={{style: {fontSize: '11px'}}}
                                 onChangePage={(event, nextPage) => setPage(nextPage)}
                                 onChangeRowsPerPage={event => {
                                     setRowsPerPage(parseInt(event.target.value, 10));
                                     setPage(0);
                                 }}
-                                rowsPerPageOptions={[50, 25, 10]}
-                                style={{fontSize: '11px', minHeight: '32px'}}
-                                SelectProps={{style: {fontSize: '11px'}}}
                             />
                         </div>
                     </div>
@@ -568,7 +568,7 @@ BackgroundJobsDialog.propTypes = {
     isOpen: PropTypes.bool.isRequired,
     onClose: PropTypes.func.isRequired,
     onExited: PropTypes.func.isRequired,
-    initialShowAllJobs: PropTypes.bool,
+    isInitialShowAll: PropTypes.bool,
     siteKey: PropTypes.string,
     path: PropTypes.string
 };
