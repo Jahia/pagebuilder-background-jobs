@@ -45,28 +45,19 @@ public class GqlPageBuilderBackgroundJob {
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
     };
 
-    private final String name;
-    private final String group;
-    private final String jobDescription;
-    private final Long duration;
-    private final String jobState;
-    private final String jobStatus;
-    private final String siteKey;
-    private final String userKey;
-    private final String createdRaw;
-    private final Long createdTimestamp;
+    private String name;
+    private String group;
+    private String jobDescription;
+    private Long duration;
+    private String jobState;
+    private String jobStatus;
+    private String siteKey;
+    private String userKey;
+    private String createdRaw;
+    private Long createdTimestamp;
 
-    private GqlPageBuilderBackgroundJob(String name, String group, String jobDescription, Long duration, String jobState, String jobStatus, String siteKey, String userKey, String createdRaw, Long createdTimestamp) {
-        this.name = name;
-        this.group = group;
-        this.jobDescription = jobDescription;
-        this.duration = duration;
-        this.jobState = jobState;
-        this.jobStatus = jobStatus;
-        this.siteKey = siteKey;
-        this.userKey = userKey;
-        this.createdRaw = createdRaw;
-        this.createdTimestamp = createdTimestamp;
+    private GqlPageBuilderBackgroundJob() {
+        // Instances are created exclusively through the from(JobDetail) factory.
     }
 
     public static GqlPageBuilderBackgroundJob from(JobDetail jobDetail) {
@@ -79,21 +70,19 @@ public class GqlPageBuilderBackgroundJob {
         }
 
         Object createdValue = getFirstNonNullDateValue(map);
-        String createdRaw = toRawString(createdValue);
-        Long createdTimestamp = toTimestamp(createdValue);
 
-        return new GqlPageBuilderBackgroundJob(
-                jobDetail.getName(),
-                jobDetail.getGroup(),
-                jobDetail.getDescription(),
-                duration,
-                state,
-                status,
-                getMapValueAsString(map, BackgroundJob.JOB_SITEKEY),
-                getMapValueAsString(map, BackgroundJob.JOB_USERKEY),
-                createdRaw,
-                createdTimestamp
-        );
+        GqlPageBuilderBackgroundJob job = new GqlPageBuilderBackgroundJob();
+        job.name = jobDetail.getName();
+        job.group = jobDetail.getGroup();
+        job.jobDescription = jobDetail.getDescription();
+        job.duration = duration;
+        job.jobState = state;
+        job.jobStatus = status;
+        job.siteKey = getMapValueAsString(map, BackgroundJob.JOB_SITEKEY);
+        job.userKey = getMapValueAsString(map, BackgroundJob.JOB_USERKEY);
+        job.createdRaw = toRawString(createdValue);
+        job.createdTimestamp = toTimestamp(createdValue);
+        return job;
     }
 
     private static String normalizeUpperCase(String value, String defaultValue) {

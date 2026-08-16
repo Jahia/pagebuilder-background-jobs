@@ -1,0 +1,7 @@
+node_modules
+node
+target
+src/main/resources/javascript/apps
+__mocks__
+dist
+coverage
