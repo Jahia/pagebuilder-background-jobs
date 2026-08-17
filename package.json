@@ -33,7 +33,13 @@
         "react-redux": "^9.2.0"
     },
     "resolutions": {
-        "serialize-javascript": "^7.0.5"
+        "flatted": "^3.4.2",
+        "internal-slot": "^1.1.0",
+        "serialize-javascript": "^7.0.5",
+        "string-width": "^4.2.3",
+        "strip-ansi": "^6.0.1",
+        "tmp": "^0.2.6",
+        "wrap-ansi": "^7.0.0"
     },
     "devDependencies": {
         "@babel/core": "^7.29.6",
@@ -55,11 +61,5 @@
         "util": "^0.12.5",
         "webpack": "^5.88.2",
         "webpack-cli": "^5.0.1"
-    },
-    "resolutions": {
-        "strip-ansi": "^6.0.1",
-        "string-width": "^4.2.3",
-        "wrap-ansi": "^7.0.0",
-        "internal-slot": "^1.1.0"
     }
 }
