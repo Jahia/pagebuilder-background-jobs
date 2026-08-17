@@ -1,0 +1,89 @@
+# Do not edit - Configuration file provided by module, any change will be lost
+#
+# API-layer authorization scope for this module's GraphQL fields.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# graphql-dxm-provider checks every GraphQL field against the security filter using the key
+# "graphql.<TypeName>.<fieldName>" (PermissionHelper#hasPermission). This module shipped no scope
+# granting its own fields, so no auto-applied scope matched them and every non-root caller was
+# rejected with GqlAccessDeniedException BEFORE the resolver ran.
+#
+# That made the whole permission model dead on arrival: the canAccessJobsInformation permission and
+# both roles in src/main/import/roles.xml could never take effect, because the API gate rejected the
+# field before any JCR check happened. The dialog only ever worked for root. Found by running the
+# e2e suite, not by reading the code.
+#
+# NOTE ON FORMAT: this is the scope-based config (org.jahia.bundles.api.authorization-*.yml), not the
+# legacy org.jahia.modules.api.permissions-*.cfg. On Jahia 8.2 the legacy default ships as
+# "...-default.cfg.disabled", so legacy rules are inert -- a legacy .cfg here was installed correctly
+# and changed nothing.
+#
+# WHAT THIS GRANTS -- AND DELIBERATELY DOES NOT
+# ---------------------------------------------
+# This grants REACHABILITY, not authorization. Per-site authorization stays in
+# GqlJahiaAdminQueryBackgroundJobsExtension#resolveJobsAccess, which denies guest, treats root and
+# repository-root grantees as unrestricted, and otherwise scopes the returned jobs to exactly the
+# sites the caller holds admin / canAccessJobsInformation on.
+#
+# constraints: NONE -- and this was measured, not assumed.
+#   `privileged_user: true` was tried first, for defense in depth. It does not work here and must not
+#   be re-added without re-testing. PrivilegedConstraint is
+#   PermissionConstraint("/sites", null, "jcr:read_default"), i.e. it requires read access on the
+#   /sites node ITSELF, not on a particular site. A grantee of the site-scoped
+#   background-jobs-viewer role does not have that, so the e2e suite showed all 16 of its GraphQL
+#   calls refused with GqlAccessDeniedException -- reintroducing exactly the failure this file exists
+#   to fix, through a different door.
+#
+#   `user_permission: canAccessJobsInformation` is likewise unusable: it is evaluated against a path,
+#   and for a root Query field that is not a site node, so it would reduce the model to server-wide
+#   grantees only -- the opposite of what the site-scoped role provides.
+#
+#   So the scope is reachable by any caller and authorization is delegated entirely to the resolver,
+#   which is the only layer that can express "these specific sites". The resolver denies guest
+#   outright, so an unauthenticated caller still learns nothing.
+#
+# auto_apply: always
+#   Required. ScopeDefinitionImpl#shouldAutoApply is anyMatch over auto_apply, so an empty list means
+#   the scope is NEVER auto-applied and would only arrive via an explicit token scope (that is why
+#   SAM's healthcheck scope has none). Constraints are still enforced on top of auto_apply.
+#
+# Grants are exact per field. Matching is `api.equals(key) || key.startsWith(api + ".")`, so listing
+# the fields individually grants nothing else. Do NOT replace these with `graphql` or `graphql.Query`
+# -- that would hand the entire GraphQL surface to every privileged user.
+
+pagebuilder_background_jobs:
+    description: Can read Page Builder background jobs for the sites the caller is authorized on
+    metadata:
+        visible: true
+        parent: graphql
+    auto_apply:
+        - always: true
+    grants:
+        # Root Query fields consumed by the Page Builder dialog.
+        - api: graphql.Query.pageBuilderBackgroundJobs
+        - api: graphql.Query.canAccessPageBuilderBackgroundJobs
+        - api: graphql.Query.pageBuilderBackgroundJobsShowAll
+        # The returned type. Its own fields are checked too, and the prefix rule covers them all.
+        - api: graphql.GqlPageBuilderBackgroundJob
+
+# The legacy admin.jahia compatibility fields are intentionally NOT granted here. Reaching them needs
+# grants on the traversal path as well (graphql.Query.admin and graphql.AdminQuery.jahia), which opens
+# more of the admin namespace than this feature requires, and the dialog does not use that path. It
+# therefore remains root-only unless an operator opts in by adding a scope such as:
+#
+# pagebuilder_background_jobs_legacy:
+#     description: Can read Page Builder background jobs through the legacy admin.jahia path
+#     metadata:
+#         visible: true
+#         parent: graphql
+#     auto_apply:
+#         - always: true
+#     # no constraints, for the reason documented above
+#     grants:
+#         - api: graphql.Query.admin
+#         - api: graphql.AdminQuery.jahia
+#         - api: graphql.JahiaAdminQuery.pageBuilderBackgroundJobs
+#         - api: graphql.JahiaAdminQuery.canAccessPageBuilderBackgroundJobs
+#         - api: graphql.JahiaAdminQuery.pageBuilderBackgroundJobsShowAll
+#         - api: graphql.GqlPageBuilderBackgroundJob

@@ -76,6 +76,44 @@ A legacy compatibility alias `pageBuilderBackgroundJobs`, `canAccessPageBuilderB
 - **`createdRaw`** — **String or null**. Best-effort scavenge over many candidate JobDataMap keys (see `GqlPageBuilderBackgroundJob.DATE_KEYS`); may be `null` if no date can be found.
 - **`createdTimestamp`** — **Long (milliseconds) or null**. Normalized timestamp parsed from the same date keys as `createdRaw`; may be `null` if no parseable date exists.
 - **`userKey`** — **String or null**. When `null` or empty, the UI renders it as `"system"`.
+- **`siteKey`** — **String or null**, and **not always supplied by Jahia** — see below.
+
+### How a job gets attributed to a site
+
+This matters because site scoping depends on it.
+
+Jahia does **not** populate `BackgroundJob.JOB_SITEKEY` (`"sitekey"`) for publications triggered
+through jContent / the GraphQL `publish` mutation:
+
+- `BackgroundJob.createJahiaJob()` writes only `created`, `status`, `userkey`, `currentLocale`.
+- `org.jahia.services.content.PublicationJob` never references `siteKey`.
+- The only class in `jahia-impl` that writes `"sitekey"` is the legacy GWT / Page Composer helper
+  `org.jahia.ajax.gwt.helper.PublicationHelper`.
+
+So on a modern Jahia the raw job data usually has **no site attribution at all**. Left unhandled, that
+means a site-scoped user sees an empty dialog, because a job that cannot be attributed to an authorized
+site is not shown to them.
+
+The module therefore **extrapolates** the site set from `publicationPaths`, which
+`ComplexPublicationServiceImpl` (the service behind the modern publication path) does record:
+
+| Job data | `siteKey` field | Sites used for scoping |
+|---|---|---|
+| `sitekey` present | that value | that one site (paths are **not** merged in) |
+| `sitekey` absent, all paths in one site | the extrapolated key | that one site |
+| `sitekey` absent, paths span several sites | `null` — no single answer is correct | **every** site touched |
+| `sitekey` absent, no path under `/sites/` | `null` | none → visible only to unrestricted callers |
+
+Two deliberate rules:
+
+- **An explicit `sitekey` wins and is never widened by paths.** If Jahia attributed the job to site A, a
+  stray path elsewhere must not make the job visible to more callers.
+- **Multi-site jobs are all-or-nothing.** A job touching several sites is shown only to a caller
+  authorized on *all* of them. Showing it on a single match would disclose that another site's content
+  was published in the same job — the exact disclosure SEC-140 is about.
+
+Paths are canonical, server-produced JCR paths, not caller input, so the traversal concerns that apply
+to the `siteKey`/`path` *arguments* do not apply here.
 
 ## Upgrading
 
@@ -178,7 +216,15 @@ Authorization decides both **whether** the caller may query jobs and **which sit
 
 **Important**: Scoping is **always** derived from the caller's actual permissions on nodes in the JCR, **never** from the caller-supplied `siteKey` or `path` arguments. When a specific site is requested, the caller must hold the permission on that site; there is no fallback to a global-API-scope or any-site override. This prevents scope-confusion attacks (SEC-140).
 
-Jobs carrying no `siteKey` are instance-level and are visible only to unrestricted callers (root or grantees on `/`).
+Jobs that cannot be attributed to any site are treated as instance-level and are visible only to
+unrestricted callers (root, or grantees on `/`). Attribution uses the explicit `sitekey` when Jahia
+supplies one and otherwise extrapolates from `publicationPaths` — see
+[How a job gets attributed to a site](#how-a-job-gets-attributed-to-a-site), because on a modern Jahia
+the explicit key is usually absent.
+
+A supplied `siteKey`/`path` that does not resolve to a site (for example `path=/modules`) is **denied**
+rather than silently ignored. Ignoring a caller-supplied argument is what made the answer stop matching
+the question in every SEC-140 bypass.
 
 The UI button is hidden when `canAccessPageBuilderBackgroundJobs(...)` returns `false`.
 
@@ -250,6 +296,22 @@ The module includes both **JUnit** unit tests and **Cypress** E2E tests:
   Full documentation: see [`tests/README.md`](tests/README.md)
 
 ## Troubleshooting
+
+### The dialog opens but is empty, while `root` sees jobs
+
+Expected in two cases, and only the second is a problem:
+
+1. **There are no *active* jobs.** `SchedulerService.getAllJobs()` returns active jobs only — Jahia's own
+   schema documents `GqlScheduler.jobs` as "List of active jobs". A finished publication job is removed
+   from the scheduler, so a dialog opened after publication completes is legitimately empty.
+2. **The jobs cannot be attributed to a site you are authorized on.** A site-scoped caller is only shown
+   jobs attributable to their sites. If Jahia supplied no `sitekey` *and* the job's `publicationPaths`
+   contain nothing under `/sites/`, the job counts as instance-level and only unrestricted callers see
+   it. See [How a job gets attributed to a site](#how-a-job-gets-attributed-to-a-site).
+
+To tell them apart, query as `root` and inspect `siteKey`: if jobs come back with `siteKey: null`, it is
+case 2. Granting `background-jobs-administrator` (server-wide) shows everything, at the cost of
+cross-site visibility.
 
 ### The "Background Jobs" or "Publication jobs" button does not appear
 

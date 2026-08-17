@@ -4,18 +4,36 @@ import {CAN_ACCESS_BACKGROUND_JOBS, errorsOf, GET_BACKGROUND_JOBS} from '../supp
 /**
  * Regression suite for SEC-140 / GHSA-4vfj-8pfg-4xrp.
  *
- * A principal granted `canAccessJobsInformation` on ONE site must never receive publication-job
- * metadata (notably `userKey` — which user triggered a publication) belonging to another site.
+ * A principal granted `canAccessJobsInformation` on ONE site must never learn anything about another
+ * site's publication jobs — notably `userKey`, i.e. which user triggered a publication.
  *
- * Two distinct bypasses are covered, because the first remediation only closed one of them:
+ * FOUR bypasses were found, three of them introduced by the fix for the previous one:
  *
- *   1. Querying with the other site's key.  The original defect: the permission was probed against
- *      the requested site while `getVisibleJobs()` returned the whole instance, so the answer was
- *      argument-independent.
+ *   1. Ask for the other site's key. The permission was probed against the requested site while
+ *      getVisibleJobs() returned the whole instance, so the answer was argument-independent.
+ *   2. Omit siteKey entirely. The first fix filtered on that argument, so leaving it out skipped the
+ *      filter and returned the global list again.
+ *   3. Disagreeing siteKey and path. The permission was checked against `path` while the result was
+ *      scoped to `siteKey`.
+ *   4. A '..' path. JCR collapses '..' before resolving, so a string-parsed site key and the node the
+ *      permission was actually evaluated on diverged.
  *
- *   2. Querying with NO siteKey at all.  The first fix filtered on the caller-supplied `siteKey`,
- *      so simply omitting it skipped the filter and handed back the global list again. Scoping is
- *      now derived from the caller's own authorization, which is what test 2 pins down.
+ * WHY THIS FILE IS SPLIT IN TWO
+ * -----------------------------
+ * `SchedulerService.getAllJobs()` returns ACTIVE jobs only — Jahia's own schema documents
+ * GqlScheduler.jobs as 'List of active jobs', and the JCR publish mutation takes no date argument, so
+ * a publication job cannot be parked in the scheduler. Once a publication finishes, its job is gone.
+ *
+ * An earlier version of this suite awaited publication and then asserted on job contents, so every
+ * assertion ran against an empty list. Some failed loudly; the ones written as `if (jobs) {...}` would
+ * have passed while guarding nothing at all.
+ *
+ * So the two kinds of assertion are now separated:
+ *
+ *   - 'authorization decisions' uses canAccessPageBuilderBackgroundJobs, a boolean that does not
+ *     depend on any job existing. Deterministic, and the real regression guard for all four bypasses.
+ *   - 'returned job scoping' needs a live job. It establishes that precondition explicitly and fails
+ *     with a clear message if it cannot, rather than passing vacuously.
  */
 describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => {
     const SITE_ALLOWED = 'pbjsitea';
@@ -25,35 +43,62 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
     const VIEWER_ROLE = 'background-jobs-viewer';
 
     interface Job {
-        name: string
-        group: string
-        siteKey: string | null
-        userKey: string | null
+        name: string;
+        group: string;
+        siteKey: string | null;
+        userKey: string | null;
     }
 
     const jobsOf = (result: never): Job[] =>
-        (result as { data: { pageBuilderBackgroundJobs: Job[] } }).data.pageBuilderBackgroundJobs;
+        (result as {data?: {pageBuilderBackgroundJobs?: Job[]}}).data?.pageBuilderBackgroundJobs ?? [];
 
     const siteKeysIn = (jobs: Job[]) => [...new Set(jobs.map(j => j.siteKey))];
 
-    const createAndPublishSite = (siteKey: string) => {
-        createSite(siteKey, {
-            languages: 'en',
-            locale: 'en',
-            serverName: 'localhost',
-            templateSet: 'samples-bootstrap-templates'
+    const asScopedUser = () => cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
+
+    /** The access probe returns a boolean and never throws, so this is deterministic with zero jobs. */
+    const canAccessAs = (variables: Record<string, string>) => {
+        asScopedUser();
+        return cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables}).then((result: never) => {
+            expect(errorsOf(result), 'the access probe must answer, not error').to.have.length(0);
+            return (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
+                .canAccessPageBuilderBackgroundJobs;
         });
-        // Publishing is what actually enqueues a PublicationJob carrying this site's siteKey.
-        publishAndWaitJobEnding(`/sites/${siteKey}/home`, ['en']);
     };
 
     before(() => {
         cy.login();
-        createAndPublishSite(SITE_ALLOWED);
-        createAndPublishSite(SITE_OTHER);
+        [SITE_ALLOWED, SITE_OTHER].forEach(siteKey => {
+            createSite(siteKey, {
+                languages: 'en',
+                locale: 'en',
+                serverName: 'localhost',
+                templateSet: 'dx-base-demo-templates'
+            });
+            // Awaited here only to leave both sites in a clean, fully-published state.
+            publishAndWaitJobEnding(`/sites/${siteKey}/home`, ['en']);
+        });
         createUser(SCOPED_USER, PASSWORD);
-        // Granted on ONE site only — this is the whole point of the suite.
+        // Granted on ONE site only — the entire point of this suite.
         grantRoles(`/sites/${SITE_ALLOWED}`, [VIEWER_ROLE], SCOPED_USER, 'USER');
+
+        // HARD PRECONDITION. Every 'denies ...' test below asserts canAccess === false, which is also
+        // what a completely broken setup returns -- no site, no role grant, nothing to leak. Without
+        // this check those tests would report green against a wide-open build. Asserting it in before()
+        // makes the whole file fail loudly instead.
+        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
+        cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then((result: never) => {
+            expect(errorsOf(result), 'setup: the access probe must answer for the scoped user').to.have.length(0);
+            expect(
+                (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
+                    .canAccessPageBuilderBackgroundJobs,
+                'SETUP FAILED: the scoped user is not authorized on its own site, so every ' +
+                    'deny-assertion in this file would pass vacuously. Check that the site was created ' +
+                    '(a missing template set makes createSite fail silently) and that roles.xml was ' +
+                    'imported so background-jobs-viewer exists.'
+            ).to.equal(true);
+        });
+        cy.apolloClient();
     });
 
     after(() => {
@@ -64,167 +109,151 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
         deleteSite(SITE_OTHER);
     });
 
-    it('root sees jobs from both sites', () => {
-        cy.apolloClient();
-        cy.apollo({query: GET_BACKGROUND_JOBS}).then((result: never) => {
-            expect(errorsOf(result), 'should have no errors').to.have.length(0);
-            const keys = siteKeysIn(jobsOf(result));
-            expect(keys, 'root should see the allowed site').to.include(SITE_ALLOWED);
-            expect(keys, 'root should see the other site').to.include(SITE_OTHER);
+    describe('authorization decisions', () => {
+        it('grants the scoped user on the site it holds the role on', () => {
+            canAccessAs({siteKey: SITE_ALLOWED}).should('equal', true);
+        });
+
+        it('grants the scoped user for a path inside that site', () => {
+            canAccessAs({path: `/sites/${SITE_ALLOWED}/home`}).should('equal', true);
+        });
+
+        it('grants the scoped user when no site is specified at all', () => {
+            // Counterpart to bypass 2: omitting siteKey must resolve to the caller's OWN authorized
+            // set — which is non-empty here — rather than to a denial or to everything.
+            canAccessAs({}).should('equal', true);
+        });
+
+        // Bypass 1 — the originally reported defect.
+        it('denies the scoped user on a site it is not authorized on', () => {
+            canAccessAs({siteKey: SITE_OTHER}).should('equal', false);
+        });
+
+        // Bypass 3 — siteKey and path disagree.
+        it('denies a siteKey/path mismatch', () => {
+            canAccessAs({siteKey: SITE_OTHER, path: `/sites/${SITE_ALLOWED}/home`}).should('equal', false);
+        });
+
+        // Bypass 4 — '..' traversal. JCR normalizes the path; string parsing does not.
+        it('denies a traversal path that resolves outside the named site', () => {
+            canAccessAs({path: `/sites/${SITE_OTHER}/../${SITE_ALLOWED}`}).should('equal', false);
+        });
+
+        it('denies a traversal path even when siteKey names the unauthorized site', () => {
+            canAccessAs({
+                siteKey: SITE_OTHER,
+                path: `/sites/${SITE_OTHER}/../${SITE_ALLOWED}`
+            }).should('equal', false);
+        });
+
+        it('denies a path outside /sites entirely', () => {
+            canAccessAs({path: '/modules'}).should('equal', false);
         });
     });
 
-    it('grants the scoped user access to its own site', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then((result: never) => {
-            expect(
-                (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
-                    .canAccessPageBuilderBackgroundJobs
-            ).to.equal(true);
-        });
-    });
-
-    it('returns only the authorized site when the scoped user asks for it', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: GET_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then((result: never) => {
-            expect(errorsOf(result), 'should have no errors').to.have.length(0);
-            const jobs = jobsOf(result);
-            expect(siteKeysIn(jobs), 'must not leak any other site').to.deep.equal([SITE_ALLOWED]);
-        });
-    });
-
-    // Bypass 1 — the originally reported defect.
-    it('denies the scoped user when it asks for a site it is not authorized on', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables: {siteKey: SITE_OTHER}}).then((result: never) => {
-            expect(
-                (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
-                    .canAccessPageBuilderBackgroundJobs,
-                'the any-site fallback must be gone'
-            ).to.equal(false);
-        });
-    });
-
-    it('never returns the other site s jobs, whatever siteKey is supplied', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: GET_BACKGROUND_JOBS, variables: {siteKey: SITE_OTHER}, errorPolicy: 'all'}).then(
-            (result: never) => {
-                const jobs = (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data
-                    ?.pageBuilderBackgroundJobs;
-                // Either denied outright, or scoped — but never containing the unauthorized site.
-                if (jobs) {
-                    expect(siteKeysIn(jobs)).to.not.include(SITE_OTHER);
-                } else {
-                    expect(errorsOf(result), 'denial errors').to.have.length.greaterThan(0);
+    /**
+     * These tests need a live publication job attributable to a site.
+     *
+     * Jahia does not attribute one: BackgroundJob.createJahiaJob() writes only
+     * created/status/userkey/currentLocale, PublicationJob never sets siteKey, and the only class in
+     * jahia-impl writing "sitekey" is the legacy GWT PublicationHelper. A publication triggered through
+     * the modern GraphQL path therefore arrives with siteKey = null, and root really did observe
+     * siteKeysIn(...) === [null] -- which left a site-scoped caller seeing an empty dialog.
+     *
+     * The module now extrapolates the site set from "publicationPaths", which
+     * ComplexPublicationServiceImpl (the service behind the modern path) does record. These tests are
+     * the end-to-end proof of that: they assert the precondition explicitly, so if extrapolation ever
+     * stops working they fail loudly instead of passing on an empty list.
+     */
+    describe('returned job scoping', () => {
+        /**
+         * Publishes a whole site subtree WITHOUT awaiting it, then polls our own field as root until a
+         * job is visible. Publishing the subtree rather than one page makes the job long enough to
+         * observe; polling our own field means the poll exercises the code under test.
+         */
+        const startPublicationAndWaitForVisibleJob = (siteKey: string) => {
+            cy.apolloClient();
+            cy.apollo({
+                mutationFile: 'graphql/jcr/mutation/publishNode.graphql',
+                variables: {
+                    pathOrId: `/sites/${siteKey}`,
+                    languages: ['en'],
+                    publishSubNodes: true,
+                    includeSubTree: true
                 }
-            }
-        );
-    });
+            });
 
-    // Bypass 2 — the gap left by the first remediation. This is the test that would have caught it.
-    it('scopes the result even when siteKey is omitted entirely', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: GET_BACKGROUND_JOBS, errorPolicy: 'all'}).then((result: never) => {
-            const jobs = (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data?.pageBuilderBackgroundJobs;
-            if (jobs) {
+            return cy
+                .waitUntil(
+                    () =>
+                        cy
+                            .apollo({query: GET_BACKGROUND_JOBS, fetchPolicy: 'no-cache'})
+                            .then((result: never) => jobsOf(result).length > 0),
+                    {
+                        errorMsg:
+                            'Precondition not met: no publication job was ever visible to root. ' +
+                            'getAllJobs() lists ACTIVE jobs only, so the publication finished before it ' +
+                            'could be observed. This test cannot verify scoping without a live job — ' +
+                            'treat it as inconclusive, not as a pass.',
+                        timeout: 30000,
+                        interval: 250
+                    }
+                )
+                .then(() => cy.apollo({query: GET_BACKGROUND_JOBS, fetchPolicy: 'no-cache'}));
+        };
+
+        it('never returns another site s jobs to a site-scoped caller', () => {
+            startPublicationAndWaitForVisibleJob(SITE_OTHER).then((rootResult: never) => {
+                // Precondition asserted rather than assumed: if root cannot see the unauthorized
+                // site's job, the scoping assertion below would prove nothing.
                 expect(
-                    siteKeysIn(jobs),
-                    'omitting siteKey must not fall back to the instance-wide list'
-                ).to.not.include(SITE_OTHER);
-            } else {
-                expect(errorsOf(result), 'denial errors').to.have.length.greaterThan(0);
-            }
-        });
-    });
+                    siteKeysIn(jobsOf(rootResult)),
+                    'root must see the unauthorized site s job for this test to mean anything'
+                ).to.include(SITE_OTHER);
 
-    // Bypass 3 — siteKey and path disagree. `siteKey` decides the scope, `path` decided the permission,
-    // so a genuine grant on the allowed site could be spent to read the other one.
-    it('denies a siteKey/path mismatch instead of scoping to the unauthorized site', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({
-            query: GET_BACKGROUND_JOBS,
-            variables: {siteKey: SITE_OTHER, path: `/sites/${SITE_ALLOWED}/home`},
-            errorPolicy: 'all'
-        }).then((result: never) => {
-            const jobs = (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data?.pageBuilderBackgroundJobs;
-            if (jobs) {
-                expect(
-                    siteKeysIn(jobs),
-                    'a grant on the allowed site must not authorize the other site'
-                ).to.not.include(SITE_OTHER);
-            } else {
-                expect(errorsOf(result), 'denial errors').to.have.length.greaterThan(0);
-            }
+                asScopedUser();
+                cy.apollo({query: GET_BACKGROUND_JOBS, fetchPolicy: 'no-cache', errorPolicy: 'all'}).then(
+                    (scopedResult: never) => {
+                        const scopedJobs = jobsOf(scopedResult);
+                        expect(
+                            siteKeysIn(scopedJobs),
+                            'a pbjsitea-only grantee must not see pbjsiteb jobs'
+                        ).to.not.include(SITE_OTHER);
+                        expect(
+                            scopedJobs.filter(job => job.siteKey !== SITE_ALLOWED),
+                            'no job outside the authorized site may be returned, so no foreign userKey either'
+                        ).to.have.length(0);
+                    }
+                );
+            });
         });
-    });
 
-    it('reports access as denied for a siteKey/path mismatch', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({
-            query: CAN_ACCESS_BACKGROUND_JOBS,
-            variables: {siteKey: SITE_OTHER, path: `/sites/${SITE_ALLOWED}/home`}
-        }).then((result: never) => {
-            expect(
-                (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
-                    .canAccessPageBuilderBackgroundJobs
-            ).to.equal(false);
-        });
-    });
+        it('returns the same scoped view however the caller frames the request', () => {
+            startPublicationAndWaitForVisibleJob(SITE_OTHER).then(() => {
+                const framings: Array<Record<string, string>> = [
+                    {siteKey: SITE_ALLOWED},
+                    {path: `/sites/${SITE_ALLOWED}/home`},
+                    {},
+                    {siteKey: SITE_OTHER},
+                    {siteKey: SITE_OTHER, path: `/sites/${SITE_ALLOWED}/home`},
+                    {path: `/sites/${SITE_OTHER}/../${SITE_ALLOWED}`}
+                ];
 
-    it('scopes the result when only a path is supplied', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({
-            query: GET_BACKGROUND_JOBS,
-            variables: {path: `/sites/${SITE_ALLOWED}/home`},
-            errorPolicy: 'all'
-        }).then((result: never) => {
-            // Deterministic: the path resolves to the site this user IS granted on, so the query must
-            // succeed. Without an else-branch, a regression that started denying here would skip the
-            // assertion entirely and the test would still report a pass.
-            const jobs = (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data?.pageBuilderBackgroundJobs;
-            expect(errorsOf(result), 'a path inside the authorized site must be accepted').to.have.length(0);
-            expect(jobs, 'jobs must be returned for the authorized path').to.be.an('array');
-            expect(siteKeysIn(jobs as Job[])).to.not.include(SITE_OTHER);
-        });
-    });
-
-    // Bypass 4 — path traversal. JCR collapses ".." before resolving, so a string-parsed site key and
-    // the node the permission is actually evaluated on can disagree.
-    it('denies a traversal path that resolves outside the requested site', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({
-            query: GET_BACKGROUND_JOBS,
-            variables: {path: `/sites/${SITE_OTHER}/../${SITE_ALLOWED}`},
-            errorPolicy: 'all'
-        }).then((result: never) => {
-            const jobs = (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data?.pageBuilderBackgroundJobs;
-            if (jobs) {
-                expect(siteKeysIn(jobs), 'traversal must not yield the unauthorized site').to.not.include(SITE_OTHER);
-            } else {
-                expect(errorsOf(result), 'denial errors').to.have.length.greaterThan(0);
-            }
-        });
-    });
-
-    it('reports access as denied for a traversal path', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({
-            query: CAN_ACCESS_BACKGROUND_JOBS,
-            variables: {siteKey: SITE_OTHER, path: `/sites/${SITE_OTHER}/../${SITE_ALLOWED}`}
-        }).then((result: never) => {
-            expect(
-                (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
-                    .canAccessPageBuilderBackgroundJobs,
-                'a ".." path must not authorize the site it textually names'
-            ).to.equal(false);
-        });
-    });
-
-    it('does not expose another user s userKey through the scoped list', () => {
-        cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: GET_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then((result: never) => {
-            const foreign = jobsOf(result).filter(job => job.siteKey !== SITE_ALLOWED);
-            expect(foreign, 'no job outside the authorized site may be returned').to.have.length(0);
+                framings.forEach(variables => {
+                    asScopedUser();
+                    cy.apollo({
+                        query: GET_BACKGROUND_JOBS,
+                        variables,
+                        fetchPolicy: 'no-cache',
+                        errorPolicy: 'all'
+                    }).then((result: never) => {
+                        expect(
+                            siteKeysIn(jobsOf(result)),
+                            `framing ${JSON.stringify(variables)} must not leak ${SITE_OTHER}`
+                        ).to.not.include(SITE_OTHER);
+                    });
+                });
+            });
         });
     });
 });

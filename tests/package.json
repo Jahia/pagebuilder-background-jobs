@@ -56,7 +56,9 @@
     "lint": "eslint . -c .eslintrc.json --ext .ts",
     "lint:fix": "yarn lint --fix",
     "report:merge": "mochawesome-merge results/reports/cypress*.json > results/reports/report.json && rm results/reports/cypress*.json",
-    "report:html": "marge --inline results/reports/report.json --reportDir results/reports/"
+    "report:html": "marge --inline results/reports/report.json --reportDir results/reports/",
+    "format": "prettier --write cypress cypress.config.ts",
+    "format:check": "prettier --check cypress cypress.config.ts"
   },
   "repository": {
     "type": "git",
