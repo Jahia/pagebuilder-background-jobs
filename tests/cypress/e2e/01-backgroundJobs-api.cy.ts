@@ -37,8 +37,7 @@ describe('Page Builder Background Jobs — GraphQL API contract', () => {
         it('exposes pageBuilderBackgroundJobs returning the fields the dialog consumes', () => {
             cy.apollo({query: GET_BACKGROUND_JOBS}).then((result: never) => {
                 expect(errorsOf(result), 'should have no errors').to.have.length(0);
-                const jobs = (result as { data: { pageBuilderBackgroundJobs: unknown[] } }).data
-                    .pageBuilderBackgroundJobs;
+                const jobs = (result as {data: {pageBuilderBackgroundJobs: unknown[]}}).data.pageBuilderBackgroundJobs;
                 expect(jobs).to.be.an('array');
             });
         });
@@ -47,7 +46,7 @@ describe('Page Builder Background Jobs — GraphQL API contract', () => {
             cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS}).then((result: never) => {
                 expect(errorsOf(result), 'should have no errors').to.have.length(0);
                 expect(
-                    (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
+                    (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
                         .canAccessPageBuilderBackgroundJobs
                 ).to.equal(true);
             });
@@ -57,7 +56,7 @@ describe('Page Builder Background Jobs — GraphQL API contract', () => {
             cy.apollo({query: GET_SHOW_ALL_JOBS_FLAG}).then((result: never) => {
                 expect(errorsOf(result), 'should have no errors').to.have.length(0);
                 expect(
-                    (result as { data: { pageBuilderBackgroundJobsShowAll: boolean } }).data
+                    (result as {data: {pageBuilderBackgroundJobsShowAll: boolean}}).data
                         .pageBuilderBackgroundJobsShowAll
                 ).to.be.a('boolean');
             });
@@ -90,7 +89,7 @@ describe('Page Builder Background Jobs — GraphQL API contract', () => {
          */
         const expectLearnsNothing = (result: never, field: string) => {
             const errors = errorsOf(result);
-            const value = (result as { data?: Record<string, boolean> }).data?.[field];
+            const value = (result as {data?: Record<string, boolean>}).data?.[field];
             if (errors.length > 0) {
                 expect(value, `${field} must not be answered when the API layer refuses`).to.not.equal(true);
             } else {

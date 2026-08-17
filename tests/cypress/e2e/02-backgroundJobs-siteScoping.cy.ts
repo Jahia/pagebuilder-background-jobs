@@ -43,14 +43,14 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
     const VIEWER_ROLE = 'background-jobs-viewer';
 
     interface Job {
-        name: string
-        group: string
-        siteKey: string | null
-        userKey: string | null
+        name: string;
+        group: string;
+        siteKey: string | null;
+        userKey: string | null;
     }
 
     const jobsOf = (result: never): Job[] =>
-        (result as { data?: { pageBuilderBackgroundJobs?: Job[] } }).data?.pageBuilderBackgroundJobs ?? [];
+        (result as {data?: {pageBuilderBackgroundJobs?: Job[]}}).data?.pageBuilderBackgroundJobs ?? [];
 
     const siteKeysIn = (jobs: Job[]) => [...new Set(jobs.map(j => j.siteKey))];
 
@@ -61,7 +61,7 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
         asScopedUser();
         return cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables}).then((result: never) => {
             expect(errorsOf(result), 'the access probe must answer, not error').to.have.length(0);
-            return (result as { data: { canAccessPageBuilderBackgroundJobs: boolean } }).data
+            return (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
                 .canAccessPageBuilderBackgroundJobs;
         });
     };
@@ -87,19 +87,17 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
         // this check those tests would report green against a wide-open build. Asserting it in before()
         // makes the whole file fail loudly instead.
         cy.apolloClient({username: SCOPED_USER, password: PASSWORD});
-        cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then(
-            (result: never) => {
-                expect(errorsOf(result), 'setup: the access probe must answer for the scoped user').to.have.length(0);
-                expect(
-                    (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
-                        .canAccessPageBuilderBackgroundJobs,
-                    'SETUP FAILED: the scoped user is not authorized on its own site, so every ' +
-                        'deny-assertion in this file would pass vacuously. Check that the site was created ' +
-                        '(a missing template set makes createSite fail silently) and that roles.xml was ' +
-                        'imported so background-jobs-viewer exists.'
-                ).to.equal(true);
-            }
-        );
+        cy.apollo({query: CAN_ACCESS_BACKGROUND_JOBS, variables: {siteKey: SITE_ALLOWED}}).then((result: never) => {
+            expect(errorsOf(result), 'setup: the access probe must answer for the scoped user').to.have.length(0);
+            expect(
+                (result as {data: {canAccessPageBuilderBackgroundJobs: boolean}}).data
+                    .canAccessPageBuilderBackgroundJobs,
+                'SETUP FAILED: the scoped user is not authorized on its own site, so every ' +
+                    'deny-assertion in this file would pass vacuously. Check that the site was created ' +
+                    '(a missing template set makes createSite fail silently) and that roles.xml was ' +
+                    'imported so background-jobs-viewer exists.'
+            ).to.equal(true);
+        });
         cy.apolloClient();
     });
 
