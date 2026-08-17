@@ -51,7 +51,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     public static List<GqlPageBuilderBackgroundJob> getPageBuilderBackgroundJobs(@GraphQLName("siteKey") String siteKey,
                                                                                   @GraphQLName("path") String path,
                                                                                   DataFetchingEnvironment environment) throws SchedulerException {
-        // SEC-140: scope the result to the sites the caller is actually authorized on. getVisibleJobs()
+        // Scope the result to the sites the caller is actually authorized on. getVisibleJobs()
         // returns jobs for the WHOLE instance, so the returned set must be filtered against the caller's
         // authorization, never against the caller-supplied siteKey argument (which is attacker-controlled
         // and may simply be omitted). Only an unrestricted principal (root / server-wide grant) sees all.
@@ -72,7 +72,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
 
     /**
      * Whether a single job may be shown to a caller holding {@code access}. Package-private so the
-     * SEC-140 scoping rule can be unit-tested without standing up a JCR session.
+     * scoping rule can be unit-tested without standing up a JCR session.
      */
     static boolean isVisibleTo(GqlPageBuilderBackgroundJob job, JobsAccess access) {
         if (!access.isGranted()) {
@@ -115,7 +115,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     @GraphQLName("pageBuilderBackgroundJobsShowAll")
     @GraphQLDescription("True when the dialog should expose all jobs and UI filters")
     public static boolean pageBuilderBackgroundJobsShowAll(DataFetchingEnvironment environment) {
-        // SEC-140 (C3): gate this config probe behind the same jobs permission (was ungated, so any
+        // Gate this config probe behind the same jobs permission (it was ungated, so any
         // authenticated user could read the flag). null site/path -> guest rejected, root allowed,
         // else granted only if the caller is authorized on at least one site.
         if (!resolveJobsAccess(null, null, environment).isGranted()) {
@@ -127,7 +127,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
     /**
      * Resolves what the caller may see, rather than answering a plain yes/no. The distinction matters:
      * the previous {@code hasJobsPermission} returned a boolean, so the caller-supplied {@code siteKey}
-     * was the only thing left to filter on — and it is attacker-controlled (SEC-140).
+     * was the only thing left to filter on — and it is attacker-controlled.
      */
     private static JobsAccess resolveJobsAccess(String siteKey, String path, DataFetchingEnvironment environment) {
         try (PermissionContext context = openPermissionContext(environment)) {
@@ -149,7 +149,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
             Set<String> authorizedSiteKeys = collectAuthorizedSiteKeys(context.session, environment);
             String requestedSiteKey = resolveRequestedSiteKey(siteKey, path);
 
-            // SEC-140 remediation (§6, bullet 3): when a specific site is requested the caller must hold
+            // When a specific site is requested the caller must hold
             // the permission on THAT site. The previous any-site / global-scope fallback let a grantee on
             // site A pass the probe for site B — the scope confusion this advisory is about.
             if (requestedSiteKey != null) {
@@ -160,7 +160,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
 
             // An argument WAS supplied but did not resolve to a site (e.g. path="/modules"). Deny rather
             // than fall through to "no site requested". Silently ignoring a caller-supplied argument is
-            // the root pattern behind every SEC-140 bypass: the answer stops corresponding to the
+            // the root pattern behind every bypass found in this resolver: the answer stops corresponding to the
             // question asked. Found by the e2e suite, which showed path="/modules" being granted.
             if (normalize(siteKey) != null || normalize(path) != null) {
                 LOGGER.debug("Background jobs request denied: siteKey={} path={} resolved to no site",
@@ -185,7 +185,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
      * the requested site. {@code resolveRequestedSiteKey} lets {@code siteKey} win over {@code path}, so
      * checking the permission against {@code path} while scoping the answer to {@code siteKey} would let
      * a caller pair {@code siteKey=siteB} with {@code path=/sites/siteA/home} and read siteB's jobs off a
-     * siteA grant — re-introducing the exact scope confusion SEC-140 is about.
+     * siteA grant — re-introducing the exact scope confusion this guard exists to prevent.
      */
     private static boolean isAuthorizedOnRequestedSite(PermissionContext context, String requestedSiteKey,
                                                        String path, Set<String> authorizedSiteKeys,
@@ -453,7 +453,7 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
                 return false;
             }
 
-            // SEC-140: evaluate the permission ONLY against the caller's own session. The previous code
+            // Evaluate the permission ONLY against the caller's own session. The previous code
             // retried the same check on a system session — which bypasses ACLs by design, so any path that
             // merely existed satisfied it — and then fell through to the security-filter's global scope
             // check, which is about API scopes, not the caller's roles on this node. Both turned a

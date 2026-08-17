@@ -65,7 +65,7 @@ query($siteKey: String, $path: String) {
 
 - **`pageBuilderBackgroundJobs`** — **THROWS** `SecurityException("Permission denied")` when the caller lacks permission. The GraphQL response includes a `null` data field and a GraphQL error. The dialog handles this gracefully by showing an error message.
 - **`canAccessPageBuilderBackgroundJobs`** — Returns a **boolean**. Returns `false` when the caller lacks permission; does **NOT** throw an error. Used by the UI to show/hide the button.
-- **`pageBuilderBackgroundJobsShowAll`** — Returns a **boolean**. Gated behind the same jobs permission (as of SEC-140 C3); returns `false` if the caller has no access. Returns the current `showAllJobs` configuration.
+- **`pageBuilderBackgroundJobsShowAll`** — Returns a **boolean**. Gated behind the same jobs permission; returns `false` if the caller has no access. Returns the current `showAllJobs` configuration.
 
 A legacy compatibility alias `pageBuilderBackgroundJobs`, `canAccessPageBuilderBackgroundJobs`, and `pageBuilderBackgroundJobsShowAll` are also exposed on the `admin.jahia` GraphQL endpoint for backward compatibility.
 
@@ -110,7 +110,7 @@ Two deliberate rules:
   stray path elsewhere must not make the job visible to more callers.
 - **Multi-site jobs are all-or-nothing.** A job touching several sites is shown only to a caller
   authorized on *all* of them. Showing it on a single match would disclose that another site's content
-  was published in the same job — the exact disclosure SEC-140 is about.
+  was published in the same job — the exact disclosure this rule exists to prevent.
 
 Paths are canonical, server-produced JCR paths, not caller input, so the traversal concerns that apply
 to the `siteKey`/`path` *arguments* do not apply here.
@@ -211,10 +211,10 @@ Authorization decides both **whether** the caller may query jobs and **which sit
 | User with `canAccessJobsInformation` on `/` | any | unrestricted — all sites + instance-level jobs |
 | User with `canAccessJobsInformation` on site(s) | no `siteKey`/`path` argument | scoped to their authorized sites only |
 | User with `canAccessJobsInformation` on site(s) | with `siteKey`/`path` pointing to an authorized site | scoped to that one site only |
-| User with `canAccessJobsInformation` on site(s) | with `siteKey`/`path` pointing to a **different** site | denied (SEC-140 / GHSA-4vfj-8pfg-4xrp) |
+| User with `canAccessJobsInformation` on site(s) | with `siteKey`/`path` pointing to a **different** site | denied |
 | User with no permission anywhere | any | denied |
 
-**Important**: Scoping is **always** derived from the caller's actual permissions on nodes in the JCR, **never** from the caller-supplied `siteKey` or `path` arguments. When a specific site is requested, the caller must hold the permission on that site; there is no fallback to a global-API-scope or any-site override. This prevents scope-confusion attacks (SEC-140).
+**Important**: Scoping is **always** derived from the caller's actual permissions on nodes in the JCR, **never** from the caller-supplied `siteKey` or `path` arguments. When a specific site is requested, the caller must hold the permission on that site; there is no fallback to a global-API-scope or any-site override. This prevents scope-confusion attacks.
 
 Jobs that cannot be attributed to any site are treated as instance-level and are visible only to
 unrestricted callers (root, or grantees on `/`). Attribution uses the explicit `sitekey` when Jahia
@@ -224,7 +224,7 @@ the explicit key is usually absent.
 
 A supplied `siteKey`/`path` that does not resolve to a site (for example `path=/modules`) is **denied**
 rather than silently ignored. Ignoring a caller-supplied argument is what made the answer stop matching
-the question in every SEC-140 bypass.
+the question in every bypass previously found in this resolver.
 
 The UI button is hidden when `canAccessPageBuilderBackgroundJobs(...)` returns `false`.
 

@@ -19,7 +19,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Regression tests for SEC-140 (GHSA-4vfj-8pfg-4xrp): a caller authorized on one site must not receive
+ * Regression tests for cross-site scoping: a caller authorized on one site must not receive
  * publication-job metadata belonging to other sites, regardless of what {@code siteKey} they pass — or
  * whether they pass one at all.
  */

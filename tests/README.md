@@ -169,13 +169,13 @@ Validates the three root GraphQL fields and their behavior under different autho
 - ✓ `pageBuilderBackgroundJobsShowAll` returns configuration flag.
 - ✓ Guest user is denied (error thrown).
 - ✓ Authenticated user with no permission is denied (error in `pageBuilderBackgroundJobs`, boolean `false` in `canAccessPageBuilderBackgroundJobs`).
-- ✓ Config probe (`pageBuilderBackgroundJobsShowAll`) is gated behind permission (SEC-140 C3 regression test).
+- ✓ Config probe (`pageBuilderBackgroundJobsShowAll`) is gated behind permission (regression test).
 
 **Covers**: API contract, authorization asymmetry, access denial modes.
 
 ### `02-backgroundJobs-siteScoping.cy.ts`
 
-**Scope-confusion regression suite (SEC-140 / GHSA-4vfj-8pfg-4xrp)**
+**Scope-confusion regression suite**
 
 Ensures a principal with permission on **one site** cannot view jobs from another site:
 
@@ -219,7 +219,7 @@ Tests run against:
 Covers:
 - Authorization checks (`JobsAccess` logic).
 - Site-scoped vs. unrestricted access modes.
-- SEC-140 scope-derivation safeguards.
+- Scope-derivation safeguards.
 
 ## Configuration Files
 
