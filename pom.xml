@@ -10,7 +10,7 @@
 
     <groupId>org.jahia.community</groupId>
     <artifactId>pagebuilder-background-jobs</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>1.0.1</version>
     <packaging>bundle</packaging>
     <name>Page Builder Background Jobs</name>
     <description>Module providing a native Background Jobs dialog in JContent Page Builder.</description>

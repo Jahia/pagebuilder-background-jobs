@@ -4,8 +4,8 @@
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| 1.0.1-SNAPSHOT | Fixed, unreleased | Carries the complete SEC-140 remediation; build from source |
-| 1.0.0 | Affected | Contains the scope-confusion vulnerability (SEC-140) — the only published release |
+| 1.0.1 | Supported | Contains the complete SEC-140 remediation |
+| 1.0.0 | Affected | Contains the scope-confusion vulnerability (SEC-140) — upgrade to 1.0.1 |
 
 ## Known Security Issues
 
@@ -13,10 +13,18 @@
 
 **Severity**: Medium — CVSS 3.1 4.3 (`AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N`), CWE-863 / CWE-200.
 
-**Status**: **fixed on `main`** — all four bypasses listed below are closed, and building from `main`
-produces a fixed module. **No fixed release exists yet**: `1.0.1` is still an unreleased SNAPSHOT, so
-`1.0.0`, the only published artifact, remains affected. Upgrade means building from source until `1.0.1`
-ships.
+**Status**: **fixed in 1.0.1.** All four bypasses listed below are closed. `1.0.0` remains affected;
+upgrade to 1.0.1.
+
+The 1.0.1 artifact is attached to the [`1_0_1` GitHub release][release]. Availability in the Jahia store
+and in Nexus is handled separately and may follow later, so if you consume the module from either of
+those, check the version you actually have deployed rather than assuming 1.0.1 is there yet.
+
+Upgrading from 1.0.0 also matters for a non-security reason: 1.0.1 ships JCR import content
+(`src/main/import/roles.xml`), and Jahia imports that content only once per module version, so the new
+roles arrive only on a version change.
+
+[release]: https://github.com/Jahia/pagebuilder-background-jobs/releases/tag/1_0_1
 
 Each fix carries regression tests: unit tests for the scoping and path-guard logic, plus an end-to-end
 suite that grants a role on one site and asserts the other site's jobs are never returned, under every
