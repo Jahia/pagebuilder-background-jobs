@@ -81,9 +81,16 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         if (access.isUnrestricted()) {
             return true;
         }
-        // Jobs with no siteKey are instance-level and are not attributable to an authorized site,
-        // so a site-scoped caller must not see them either.
-        return job.getSiteKey() != null && access.getAuthorizedSiteKeys().contains(job.getSiteKey());
+        // Scope on the job's full site set, not its display siteKey. Jahia leaves JOB_SITEKEY unset on
+        // the modern publication path, so the set is extrapolated from publicationPaths — see
+        // GqlPageBuilderBackgroundJob#siteKeysFromPublicationPaths.
+        //
+        // containsAll, not "any": a job touching several sites is only visible to a caller authorized on
+        // ALL of them. Showing it on a single match would disclose that another site's content was
+        // published in the same job. An empty set means the job is not attributable to any site
+        // (instance-level, or no usable paths), so a site-scoped caller does not see it.
+        Set<String> jobSiteKeys = job.getScopingSiteKeys();
+        return !jobSiteKeys.isEmpty() && access.getAuthorizedSiteKeys().containsAll(jobSiteKeys);
     }
 
     /**

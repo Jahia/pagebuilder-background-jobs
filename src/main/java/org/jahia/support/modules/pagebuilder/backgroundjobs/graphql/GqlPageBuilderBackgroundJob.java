@@ -11,6 +11,12 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Date;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 @GraphQLDescription("Background job representation for Page Builder dialog")
 public class GqlPageBuilderBackgroundJob {
@@ -56,6 +62,16 @@ public class GqlPageBuilderBackgroundJob {
     private String createdRaw;
     private Long createdTimestamp;
 
+    /**
+     * Every site this job touches, used for authorization scoping rather than display.
+     *
+     * <p>Kept separate from {@link #siteKey} because a job can touch more than one site, and a
+     * site-scoped caller must not see such a job unless it is authorized on ALL of them — otherwise the
+     * mere presence of the job discloses that content in another site was published alongside theirs.
+     * Empty means "not attributable to any site", which for a scoped caller means not visible.
+     */
+    private Set<String> scopingSiteKeys = Collections.emptySet();
+
     private GqlPageBuilderBackgroundJob() {
         // Instances are created exclusively through the from(JobDetail) factory.
     }
@@ -78,11 +94,108 @@ public class GqlPageBuilderBackgroundJob {
         job.duration = duration;
         job.jobState = state;
         job.jobStatus = status;
-        job.siteKey = getMapValueAsString(map, BackgroundJob.JOB_SITEKEY);
+        // Jahia does not populate JOB_SITEKEY on the modern publication path: createJahiaJob() writes
+        // only created/status/userkey/currentLocale, PublicationJob never sets it, and the only class in
+        // jahia-impl that does is the legacy GWT PublicationHelper. ComplexPublicationServiceImpl -- the
+        // service behind jContent/GraphQL publication -- does however record "publicationPaths", so the
+        // site can be extrapolated from those when the explicit key is missing.
+        String explicitSiteKey = getMapValueAsString(map, BackgroundJob.JOB_SITEKEY);
+        Set<String> pathSiteKeys = siteKeysFromPublicationPaths(map);
+
+        job.scopingSiteKeys = resolveScopingSiteKeys(explicitSiteKey, pathSiteKeys);
+        // Display value: the explicit key when present, otherwise the extrapolated one -- but only when
+        // it is unambiguous. A job spanning several sites has no single correct answer, so it stays null
+        // rather than naming one arbitrarily. Scoping still uses the full set above.
+        job.siteKey = explicitSiteKey != null ? explicitSiteKey
+                : (pathSiteKeys.size() == 1 ? pathSiteKeys.iterator().next() : null);
         job.userKey = getMapValueAsString(map, BackgroundJob.JOB_USERKEY);
         job.createdRaw = toRawString(createdValue);
         job.createdTimestamp = toTimestamp(createdValue);
         return job;
+    }
+
+    /** Key written by ComplexPublicationServiceImpl; equals PublicationJob.PUBLICATION_PATHS. */
+    private static final String PUBLICATION_PATHS_KEY = "publicationPaths";
+    private static final String SITES_PREFIX = "/sites/";
+
+    /**
+     * Site keys extracted from the job's {@code publicationPaths}. These are canonical, server-produced
+     * JCR paths — not caller input — so unlike the request-argument handling in the resolver there is no
+     * traversal concern here. Paths outside {@code /sites/} contribute nothing.
+     */
+    static Set<String> siteKeysFromPublicationPaths(JobDataMap map) {
+        if (map == null || !map.containsKey(PUBLICATION_PATHS_KEY)) {
+            return Collections.emptySet();
+        }
+
+        Set<String> siteKeys = new LinkedHashSet<>();
+        for (String path : toStringCollection(map.get(PUBLICATION_PATHS_KEY))) {
+            String siteKey = siteKeyOfPath(path);
+            if (siteKey != null) {
+                siteKeys.add(siteKey);
+            }
+        }
+        return siteKeys;
+    }
+
+    /** {@code /sites/foo/home/page} -> {@code foo}; anything not under /sites/ -> null. */
+    private static String siteKeyOfPath(String path) {
+        if (path == null) {
+            return null;
+        }
+        String trimmed = path.trim();
+        if (!trimmed.startsWith(SITES_PREFIX)) {
+            return null;
+        }
+
+        String remainder = trimmed.substring(SITES_PREFIX.length());
+        int slash = remainder.indexOf('/');
+        String siteKey = slash == -1 ? remainder : remainder.substring(0, slash);
+        return siteKey.isEmpty() ? null : siteKey;
+    }
+
+    /** The JobDataMap value is an untyped Object; accept a collection, an array, or a single string. */
+    private static Collection<String> toStringCollection(Object value) {
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        if (value instanceof Collection) {
+            List<String> values = new ArrayList<>();
+            for (Object element : (Collection<?>) value) {
+                if (element != null) {
+                    values.add(String.valueOf(element));
+                }
+            }
+            return values;
+        }
+        if (value instanceof Object[]) {
+            List<String> values = new ArrayList<>();
+            for (Object element : (Object[]) value) {
+                if (element != null) {
+                    values.add(String.valueOf(element));
+                }
+            }
+            return values;
+        }
+        return Collections.singletonList(String.valueOf(value));
+    }
+
+    /**
+     * The set a site-scoped caller is checked against. An explicit JOB_SITEKEY wins, because that is
+     * Jahia's own attribution; otherwise the extrapolated set is used. Deliberately does NOT merge the
+     * two: if Jahia says the job belongs to site A, a stray path elsewhere must not widen the set and
+     * make the job visible to more callers.
+     */
+    static Set<String> resolveScopingSiteKeys(String explicitSiteKey, Set<String> pathSiteKeys) {
+        if (explicitSiteKey != null && !explicitSiteKey.trim().isEmpty()) {
+            return Collections.singleton(explicitSiteKey.trim());
+        }
+        return pathSiteKeys.isEmpty() ? Collections.emptySet() : Collections.unmodifiableSet(pathSiteKeys);
+    }
+
+    /** Package-private: consumed by the resolver's visibility check, not exposed over GraphQL. */
+    Set<String> getScopingSiteKeys() {
+        return scopingSiteKeys;
     }
 
     private static String normalizeUpperCase(String value, String defaultValue) {

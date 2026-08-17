@@ -154,35 +154,20 @@ describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => 
     });
 
     /**
-     * SKIPPED, and the reason is a platform gap rather than a defect in this module.
+     * These tests need a live publication job attributable to a site.
      *
-     * These two tests need a live publication job whose siteKey identifies its site. That value comes
-     * from BackgroundJob.JOB_SITEKEY ("sitekey") in the Quartz JobDataMap, and it is NOT populated on
-     * this path:
+     * Jahia does not attribute one: BackgroundJob.createJahiaJob() writes only
+     * created/status/userkey/currentLocale, PublicationJob never sets siteKey, and the only class in
+     * jahia-impl writing "sitekey" is the legacy GWT PublicationHelper. A publication triggered through
+     * the modern GraphQL path therefore arrives with siteKey = null, and root really did observe
+     * siteKeysIn(...) === [null] -- which left a site-scoped caller seeing an empty dialog.
      *
-     *   - BackgroundJob.createJahiaJob() writes only created / status / userkey / currentLocale.
-     *   - org.jahia.services.content.PublicationJob never references siteKey at all.
-     *   - The only class in jahia-impl that writes "sitekey" is the legacy GWT/Page-Composer helper
-     *     org.jahia.ajax.gwt.helper.PublicationHelper.
-     *
-     * So a publication triggered through the modern GraphQL mutation produces a job with
-     * siteKey = null, which is what root actually observed: siteKeysIn(...) === [null]. With no
-     * site-attributed job in the scheduler, neither test can be made meaningful here:
-     *
-     *   - 'never returns another site s jobs' fails its own precondition (correctly, loudly).
-     *   - 'returns the same scoped view...' PASSES, but vacuously: a scoped caller sees nothing
-     *     because every job is null-siteKey, so "must not include pbjsiteb" holds trivially. That is
-     *     the vacuous-pass pattern this suite is explicitly designed to avoid, so it must not be left
-     *     green as if it proved something.
-     *
-     * The scoping rule itself IS covered, deterministically, by the Java unit tests for isVisibleTo()
-     * and by the eight 'authorization decisions' tests above. What is missing is only end-to-end
-     * confirmation against real job data.
-     *
-     * To enable these: arrange a publication that populates sitekey (legacy path), or have Jahia set
-     * it on the GraphQL path, then remove the .skip.
+     * The module now extrapolates the site set from "publicationPaths", which
+     * ComplexPublicationServiceImpl (the service behind the modern path) does record. These tests are
+     * the end-to-end proof of that: they assert the precondition explicitly, so if extrapolation ever
+     * stops working they fail loudly instead of passing on an empty list.
      */
-    describe.skip('returned job scoping (needs a site-attributed publication job)', () => {
+    describe('returned job scoping', () => {
         /**
          * Publishes a whole site subtree WITHOUT awaiting it, then polls our own field as root until a
          * job is visible. Publishing the subtree rather than one page makes the job long enough to
