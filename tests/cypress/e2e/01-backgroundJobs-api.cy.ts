@@ -12,7 +12,7 @@ import {
  *  - the three root fields exist and are shaped as the frontend expects,
  *  - guest is rejected,
  *  - an authenticated user holding no jobs permission is rejected,
- *  - the `showAllJobs` config probe is gated (it was ungated before SEC-140 C3).
+ *  - the `showAllJobs` config probe is gated (it was once ungated).
  */
 describe('Page Builder Background Jobs — GraphQL API contract', () => {
     const PLAIN_USER = 'pbjPlainUser';
@@ -103,7 +103,7 @@ describe('Page Builder Background Jobs — GraphQL API contract', () => {
             });
         });
 
-        // SEC-140 (C3): this probe used to answer for any authenticated user.
+        // This probe used to answer for any authenticated user.
         it('does not leak the showAllJobs configuration flag', () => {
             cy.apollo({query: GET_SHOW_ALL_JOBS_FLAG, errorPolicy: 'all'}).then((result: never) => {
                 expectLearnsNothing(result, 'pageBuilderBackgroundJobsShowAll');

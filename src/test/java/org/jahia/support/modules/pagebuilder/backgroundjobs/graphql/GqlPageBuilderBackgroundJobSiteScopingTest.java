@@ -180,7 +180,7 @@ public class GqlPageBuilderBackgroundJobSiteScopingTest {
 
     /**
      * All-or-nothing. Showing a multi-site job on a single match would tell a sitea-only grantee that
-     * siteb content was published in the same job -- the disclosure SEC-140 is about.
+     * siteb content was published in the same job -- the disclosure this rule exists to prevent.
      */
     @Test
     public void multiSiteJobIsHiddenUnlessTheCallerHoldsEverySiteItTouches() {

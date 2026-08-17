@@ -2,7 +2,7 @@ import {createSite, createUser, deleteSite, deleteUser, grantRoles, publishAndWa
 import {CAN_ACCESS_BACKGROUND_JOBS, errorsOf, GET_BACKGROUND_JOBS} from '../support/backgroundJobsQueries';
 
 /**
- * Regression suite for SEC-140 / GHSA-4vfj-8pfg-4xrp.
+ * Regression suite for cross-site job-metadata scoping.
  *
  * A principal granted `canAccessJobsInformation` on ONE site must never learn anything about another
  * site's publication jobs — notably `userKey`, i.e. which user triggered a publication.
@@ -35,7 +35,7 @@ import {CAN_ACCESS_BACKGROUND_JOBS, errorsOf, GET_BACKGROUND_JOBS} from '../supp
  *   - 'returned job scoping' needs a live job. It establishes that precondition explicitly and fails
  *     with a clear message if it cannot, rather than passing vacuously.
  */
-describe('Page Builder Background Jobs — cross-site scoping (SEC-140)', () => {
+describe('Page Builder Background Jobs — cross-site scoping', () => {
     const SITE_ALLOWED = 'pbjsitea';
     const SITE_OTHER = 'pbjsiteb';
     const SCOPED_USER = 'pbjScopedUser';
