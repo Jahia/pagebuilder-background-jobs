@@ -4,7 +4,7 @@
 
 | Version | Status | Notes |
 |---------|--------|-------|
-| 1.0.1-SNAPSHOT | In development | Carries the SEC-140 remediation; **not yet released** |
+| 1.0.1-SNAPSHOT | Fixed, unreleased | Carries the complete SEC-140 remediation; build from source |
 | 1.0.0 | Affected | Contains the scope-confusion vulnerability (SEC-140) — the only published release |
 
 ## Known Security Issues
@@ -13,10 +13,14 @@
 
 **Severity**: Medium — CVSS 3.1 4.3 (`AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N`), CWE-863 / CWE-200.
 
-**Status**: **not yet fixed on `main`.** `main` currently carries only the first, partial remediation —
-it still contains bypasses 2, 3 and 4 below. The complete fix is on the
-`fix/scope-jobs-to-authorized-sites` branch, pending review and merge. No fixed release exists, so every
-published artifact (1.0.0) is affected, and building from `main` today does not produce a fixed module.
+**Status**: **fixed on `main`** — all four bypasses listed below are closed, and building from `main`
+produces a fixed module. **No fixed release exists yet**: `1.0.1` is still an unreleased SNAPSHOT, so
+`1.0.0`, the only published artifact, remains affected. Upgrade means building from source until `1.0.1`
+ships.
+
+Each fix carries regression tests: unit tests for the scoping and path-guard logic, plus an end-to-end
+suite that grants a role on one site and asserts the other site's jobs are never returned, under every
+way of framing the request.
 
 **Issue**: `pageBuilderBackgroundJobs` verified the caller's permission against a caller-supplied
 `siteKey`/`path`, but returned jobs for the whole instance. A principal granted
@@ -42,6 +46,15 @@ fallbacks were removed.
 
 **Mitigation for 1.0.0**: grant `canAccessJobsInformation` only to principals you are willing to let
 see every site's job metadata, or remove the module until a fixed release is available.
+
+**Note on real-world reachability in 1.0.0.** Separately from the authorization defect, 1.0.0 shipped no
+API authorization scope for its own GraphQL fields, so Jahia's security filter refused them to every
+non-`root` caller before the resolver ran. On a default Jahia that means the delegated principal the
+advisory describes could not reach the vulnerable field at all, and `root` — who could — is already
+entitled to see every site's jobs. The leak was therefore reachable in practice only where an operator
+had granted a scope covering these fields, or via the legacy `admin.jahia` path. This lowers the
+practical exposure of 1.0.0; it does not change the defect, which is fixed on `main` independently of the
+scope now being shipped.
 
 ## Reporting a Vulnerability
 
