@@ -6,3 +6,12 @@ coverage/
 .DS_Store
 .idea
 .codegraph/
+
+# Editor swap/backup files, repo-wide. tests/.gitignore already covers these, but a
+# committed .env.swp once leaked a signed Jahia EE license past a `.env` rule — a swap
+# file has a different name than the file it shadows, so the rule must be by pattern.
+*.sw?
+*~
+.env
+.env.*
+!.env.example

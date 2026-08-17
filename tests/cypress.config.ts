@@ -17,19 +17,16 @@ export default defineConfig({
     e2e: {
         setupNodeEvents(on, config) {
             // Delete videos for tests that did not fail
-            on(
-                'after:spec',
-                (spec: Cypress.Spec, results: CypressCommandLine.RunResult) => {
-                    if (results && results.video) {
-                        const failures = results.tests.some(test =>
-                            test.attempts.some(attempt => attempt.state === 'failed')
-                        );
-                        if (!failures) {
-                            fs.unlinkSync(results.video);
-                        }
+            on('after:spec', (spec: Cypress.Spec, results: CypressCommandLine.RunResult) => {
+                if (results && results.video) {
+                    const failures = results.tests.some(test =>
+                        test.attempts.some(attempt => attempt.state === 'failed')
+                    );
+                    if (!failures) {
+                        fs.unlinkSync(results.video);
                     }
                 }
-            );
+            });
             return registerPlugins(on, config);
         },
         excludeSpecPattern: '*.ignore.ts',

@@ -7,4 +7,54 @@
   uninstallPreviousVersion: false
 - karafCommand: "log:log 'END - Install pagebuilder-background-jobs dependencies'"
 
+# ---------------------------------------------------------------------------------------------------
+# A template set is required by the e2e suite: createSite() needs one, and without it Jahia throws
+# "Cannot invoke JahiaTemplatesPackage.getId() because templateSet is null". The site is then never
+# created, the role grant has nothing to attach to, and every scoping assertion in
+# 02-backgroundJobs-siteScoping.cy.ts becomes VACUOUS -- canAccess returns false for everything, which
+# is exactly what the deny-assertions expect. That is why that spec now asserts a hard precondition.
+#
+# The jahia-ee-dev image ships only 'default' and 'templates-system', neither of which can back a site.
+#
+# Two things to know before editing this list:
+#   * `samples-bootstrap-templates` (plural), used by several sibling suites, does not exist. The real
+#     artifact is `sample-bootstrap-templates` (singular) and its module id is singular too -- but it
+#     is uninstallable from the public repo anyway, because every published version declares
+#     Jahia-Depends on `fa`, and no artifact provides that id.
+#   * The module id to pass to createSite is `dx-base-demo-templates`, confirmed from its
+#     Bundle-SymbolicName / Jahia-Module-Type: templatesSet.
+#
+# This is the module list from a sibling harness known to bring dx-base-demo-templates up; installing
+# a superset is deliberate, since resolving its transitive Jahia-Depends chain by hand needed several
+# rounds (dx-base-demo-components -> bootstrap3-components, dx-base-demo-templates -> bookmarks, ...).
+# ---------------------------------------------------------------------------------------------------
+- karafCommand: "log:log 'START - Install template set for e2e sites'"
+- installBundle:
+      - 'mvn:org.jahia.modules/legacy-default-components'
+      - 'mvn:org.jahia.modules/dx-base-demo-core'
+      - 'mvn:org.jahia.modules/dx-base-demo-components'
+      - 'mvn:org.jahia.modules/dx-base-demo-templates'
+      - 'mvn:org.jahia.modules/contact'
+      - 'mvn:org.jahia.modules/event'
+      - 'mvn:org.jahia.modules/font-awesome'
+      - 'mvn:org.jahia.modules/teasers'
+      - 'mvn:org.jahia.modules/press'
+      - 'mvn:org.jahia.modules/person'
+      - 'mvn:org.jahia.modules/news'
+      - 'mvn:org.jahia.modules/calendar'
+      - 'mvn:org.jahia.modules/bootstrap3-core'
+      - 'mvn:org.jahia.modules/bootstrap3-components'
+      - 'mvn:org.jahia.modules/location'
+      - 'mvn:org.jahia.modules/topstories'
+      - 'mvn:org.jahia.modules/rating'
+      - 'mvn:org.jahia.modules/bookmarks'
+      - 'mvn:org.jahia.modules/article'
+      - 'mvn:org.jahia.modules/skins'
+      - 'mvn:org.jahia.modules/default-skins'
+      - 'mvn:org.jahia.modules/grid'
+      - 'mvn:org.jahia.modules/tabularList'
+  autoStart: true
+  uninstallPreviousVersion: true
+- karafCommand: "log:log 'END - Install template set for e2e sites'"
+
 - karafCommand: "log:log 'END - provisioning'"

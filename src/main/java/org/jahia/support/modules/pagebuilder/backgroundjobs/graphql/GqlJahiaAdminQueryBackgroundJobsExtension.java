@@ -5,6 +5,8 @@ import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import graphql.schema.DataFetchingEnvironment;
+import graphql.ErrorType;
+import org.jahia.modules.graphql.provider.dxm.BaseGqlClientException;
 import org.jahia.modules.graphql.provider.dxm.DXGraphQLProvider;
 import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.osgi.BundleUtils;
@@ -55,7 +57,11 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
         // and may simply be omitted). Only an unrestricted principal (root / server-wide grant) sees all.
         JobsAccess access = resolveJobsAccess(siteKey, path, environment);
         if (!access.isGranted()) {
-            throw new SecurityException(PERMISSION_DENIED_MESSAGE);
+            // BaseGqlClientException, not SecurityException. DXM cannot classify a raw JDK exception, so
+            // it masked the denial as "Internal Server Error(s) while executing query" -- indistinguishable
+            // from a broken backend, and not the "Permission denied" the README documents. Surfaced by the
+            // e2e suite.
+            throw new BaseGqlClientException(PERMISSION_DENIED_MESSAGE, ErrorType.DataFetchingException);
         }
 
         List<JobDetail> jobs = getVisibleJobs();
@@ -145,7 +151,17 @@ public class GqlJahiaAdminQueryBackgroundJobsExtension {
                         : JobsAccess.denied();
             }
 
-            // No site requested: fall back to the caller's own authorized set, never to the global list.
+            // An argument WAS supplied but did not resolve to a site (e.g. path="/modules"). Deny rather
+            // than fall through to "no site requested". Silently ignoring a caller-supplied argument is
+            // the root pattern behind every SEC-140 bypass: the answer stops corresponding to the
+            // question asked. Found by the e2e suite, which showed path="/modules" being granted.
+            if (normalize(siteKey) != null || normalize(path) != null) {
+                LOGGER.debug("Background jobs request denied: siteKey={} path={} resolved to no site",
+                        siteKey, path);
+                return JobsAccess.denied();
+            }
+
+            // Nothing was requested: fall back to the caller's own authorized set, never the global list.
             return authorizedSiteKeys.isEmpty()
                     ? JobsAccess.denied()
                     : JobsAccess.scopedTo(authorizedSiteKeys);

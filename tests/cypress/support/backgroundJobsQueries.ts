@@ -38,11 +38,11 @@ export const GET_SHOW_ALL_JOBS_FLAG = gql`
 
 /** GraphQL errors surface differently depending on the client path; normalise them. */
 export const errorsOf = (result: {
-    graphQLErrors?: Array<{message: string}>;
-    errors?: Array<{message: string}>;
-}): Array<{message: string}> => result.graphQLErrors ?? result.errors ?? [];
+    graphQLErrors?: Array<{ message: string }>
+    errors?: Array<{ message: string }>
+}): Array<{ message: string }> => result.graphQLErrors ?? result.errors ?? [];
 
 export const messagesOf = (result: never): string =>
     errorsOf(result)
-        .map((e: {message: string}) => e.message)
+        .map((e: { message: string }) => e.message)
         .join(' ');
