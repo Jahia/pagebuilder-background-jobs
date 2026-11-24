@@ -45,6 +45,7 @@
         "@babel/core": "^7.29.6",
         "@babel/preset-env": "^7.6.2",
         "@babel/preset-react": "^7.0.0",
+        "@cyclonedx/webpack-plugin": "^4.0.1",
         "@jahia/eslint-config": "^1.1.0",
         "@jahia/webpack-config": "^1.0.0",
         "@testing-library/jest-dom": "^5.16.5",
